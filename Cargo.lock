@@ -67,6 +67,7 @@ dependencies = [
  "chrono",
  "deadpool-redis",
  "lazy_static",
+ "log",
  "redis",
  "rmp-serde",
  "serde",

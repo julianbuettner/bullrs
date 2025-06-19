@@ -1,4 +1,8 @@
-use std::{marker::PhantomData, time::SystemTime};
+use std::{
+    marker::PhantomData,
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 
 use chrono::{DateTime, Utc};
 use deadpool_redis::{Manager, Pool};
@@ -6,25 +10,25 @@ use redis::{AsyncCommands, Client, RedisResult, aio::MultiplexedConnection};
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{
-    job::{JobScheduling, JobState},
+    job_depre::{JobScheduling, JobState},
     luacommands::ADD_STANDARD_JOB,
 };
 
+/// Performance note: cloning the queue is
+/// cheap, performing not heap allocations.
 #[derive(Clone)]
-pub struct Queue<D, R> {
-    name: String,
-    data: PhantomData<D>, // job payload
-    response: PhantomData<R>,
+pub struct Queue<D, R, P = String, E = String> {
+    name: QueueName,
     pool: Pool,
+    phantom: PhantomData<(D, R, P, E)>, // Data, Result, Progress, Error
 }
 
 impl<D, R> Queue<D, R> {
     pub fn new(pool: Pool, name: impl ToString) -> Self {
         Self {
-            name: name.to_string(),
-            data: Default::default(),
-            response: Default::default(),
+            name: QueueName::new(name),
             pool,
+            phantom: PhantomData,
         }
     }
 
@@ -33,7 +37,7 @@ impl<D, R> Queue<D, R> {
             .pool
             .get()
             .await?
-            .hget(format!("bull:{}:meta", self.name), "concurrency")
+            .hget(self.name.meta(), "concurrency")
             .await?)
     }
 
@@ -47,7 +51,7 @@ impl<D, R> Queue<D, R> {
             lifo: bool,
         }
 
-        let key_prefix = format!("bull:{}:", self.name);
+        let key_prefix = self.name.prefix();
         let custom_id: String = "".into();
         let parent_key: Option<String> = None;
         let wait_children_key: Option<String> = None;
@@ -75,14 +79,14 @@ impl<D, R> Queue<D, R> {
 
         let mut connection = self.pool.get().await?;
         let result: String = ADD_STANDARD_JOB
-            .key(format!("bull:{}:wait", self.name))
-            .key(format!("bull:{}:paused", self.name))
-            .key(format!("bull:{}:meta", self.name))
-            .key(format!("bull:{}:id", self.name))
-            .key(format!("bull:{}:completed", self.name))
-            .key(format!("bull:{}:active", self.name))
-            .key(format!("bull:{}:events", self.name))
-            .key(format!("bull:{}:marker", self.name))
+            .key(self.name.wait())
+            .key(self.name.paused())
+            .key(self.name.meta())
+            .key(self.name.id())
+            .key(self.name.completed())
+            .key(self.name.active())
+            .key(self.name.events())
+            .key(self.name.marker())
             .arg(rmp_serde::to_vec(&arguments_tuple).unwrap())
             .arg(serde_json::to_string(&j.data).unwrap())
             .arg(rmp_serde::to_vec_named(&opts).unwrap())
@@ -102,16 +106,17 @@ impl<D, R> Queue<D, R> {
             .pool
             .get()
             .await?
-            .hgetall(format!("bull:{}:{}", self.name, job_id))
+            .hgetall(format!("bull:{}:{}", self.name.as_str(), job_id))
             .await?)
     }
 }
 
-pub struct QueueName(pub String);
+#[derive(Debug, Clone)]
+pub struct QueueName(Arc<String>);
 
 impl QueueName {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self(name.into())
+    pub fn new(name: impl ToString) -> Self {
+        Self(Arc::from(name.to_string()))
     }
     pub fn prefix(&self) -> String {
         format!("bull:{}:", self.0)
@@ -159,11 +164,27 @@ impl QueueName {
         format!("bull:{}:stalled-check", self.0)
     }
 
+    pub fn stalled(&self) -> String {
+        format!("bull:{}:stalled", self.0)
+    }
+
     pub fn events(&self) -> String {
         format!("bull:{}:events", self.0)
     }
 
     pub fn id(&self) -> String {
         format!("bull:{}:id", self.0)
+    }
+
+    pub fn job(&self, job_id: &str) -> String {
+        format!("bull:{}:{}", self.0, job_id)
+    }
+
+    pub fn job_lock(&self, job_id: &str) -> String {
+        format!("bull:{}:{}:lock", self.0, job_id)
+    }
+
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
     }
 }

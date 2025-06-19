@@ -1,6 +1,6 @@
 use anyhow::Result;
 use deadpool_redis::{Config, Runtime};
-use job::{JobScheduling, JobState};
+use job_depre::{JobScheduling, JobState};
 use luacommands::UPDATE_DATA;
 use queue::Queue;
 use redis::{Commands, Connection, aio::MultiplexedConnection};
@@ -12,6 +12,8 @@ use chrono::{DateTime, Utc};
 use redis::{AsyncCommands as _, FromRedisValue, JsonAsyncCommands, RedisError, from_redis_value};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 mod job;
+mod job_depre;
+mod job_lock;
 mod luacommands;
 mod queue;
 mod worker;
@@ -24,7 +26,16 @@ struct Payload {
 
 #[derive(Debug, Deserialize)]
 struct JobOptions {
-    attempts: usize,
+    /// Maximum Attempts to make
+    attempts: Option<usize>,
+    /// How many logs too keep
+    #[serde(rename = "kl")]
+    keepLogs: Option<usize>,
+    /// Last In First Out, makes rarely sense
+    lifo: Option<bool>,
+    /// Continue Parent Job on Failure
+    #[serde(rename = "cpof")]
+    continueParentOnFailure: Option<bool>,
 }
 
 #[derive(Deserialize)]

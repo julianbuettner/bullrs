@@ -3,86 +3,67 @@ use std::{fmt::Display, marker::PhantomData, sync::Arc, time::Duration};
 use anyhow::Result;
 use chrono::Utc;
 use deadpool_redis::Pool;
+use log::trace;
 use redis::{AsyncCommands, RedisResult, aio::MultiplexedConnection};
 use serde::de::DeserializeOwned;
 use tokio::{
     spawn,
-    sync::{Semaphore, SemaphorePermit},
+    sync::{
+        OwnedSemaphorePermit, Semaphore, SemaphorePermit,
+        mpsc::{Receiver, Sender, channel},
+    },
     task::JoinHandle,
     time::sleep,
 };
 
-use crate::{job::JobState, luacommands::MoveStalledJobsToWait, queue::QueueName};
+use crate::{
+    job::LightJobHandle, job_depre::JobState, luacommands::{InvokeLuaScript as _, MoveStalledJobsToWait}, queue::QueueName
+};
 
-pub struct OwnedJobHandle<D, R, P = String> {
-    queue_name: QueueName,
+pub struct Worker<D, R, P = String, E = String> {
     pool: Pool,
-    pub id: String,
-    pub name: String,
-    pub data: D,
+    queue_name: QueueName,
     semaphore: Arc<Semaphore>,
-    lock_refresh_handle: JoinHandle<()>,
-    phantom: PhantomData<(R, P)>,
+    background_handles: JoinHandle<Vec<()>>,
+    job_receiver: Receiver<LightJobHandle<D, R, P, E>>,
+    phantom: PhantomData<(D, R, P, E)>, // Data, Result, Progress, Error
 }
 
-impl<D, R, P> Drop for OwnedJobHandle<D, R, P> {
-    fn drop(&mut self) {
-        // The owned variant reduced the semaphore permit count by one (by forgetting),
-        // simulating holding a owned semaphore permit
-        self.semaphore.add_permits(1);
-        self.lock_refresh_handle.abort();
-    }
+/// Parameterize a worker. The defaults
+/// should be fine. For high performance applications,
+/// increase parallel_jobs or parallel_connections.
+#[derive(Clone, Debug)]
+pub struct WorkerArgs {
+    /// How many jobs should a worker work at once at max.
+    /// Parallel jobs should be more than parallel connections to be meaningful.
+    pub parallel_jobs: usize,
+    /// How many parallel connections should a worker have to the Redis database.
+    /// The jobs per second are limited by parallel_connections divided by redis ping.
+    pub parallel_connections: usize,
 }
 
-pub struct LightJobHandle<'a, D, R, P = String> {
-    queue_name: &'a QueueName,
-    pool: &'a Pool,
-    pub id: String,
-    pub name: String,
-    pub data: D,
-    semaphore_permit: SemaphorePermit<'a>,
-    phantom: PhantomData<(R, P)>,
-    lock_refresh_handle: JoinHandle<()>,
-}
-
-impl<'a, D, R, P> Drop for LightJobHandle<'a, D, R, P> {
-    fn drop(&mut self) {
-        self.lock_refresh_handle.abort();
+impl Default for WorkerArgs {
+    fn default() -> Self {
+        Self {
+            parallel_jobs: 1024,
+            parallel_connections: 32,
+        }
     }
 }
 
-pub trait JobHandle<D> {
-    fn get_id(&self) -> &str;
-    fn get_name(&self) -> &str;
-    fn get_pool(&self) -> &Pool;
+impl<D, R, P, E> Worker<D, R, P, E> {
+    fn new(pool: Pool, queue_name: QueueName, args: WorkerArgs) -> Self {
+        let semaphore = Arc::new(Semaphore::new(args.parallel_jobs));
+        let (tx, job_receiver) = channel(args.parallel_jobs);
 
-    async fn failed(&self, error: impl Display) -> anyhow::Result<()> {
-        let mut con = self.get_pool().get().await?;
-        Ok(())
-    }
-}
-
-impl<D, R, P> JobHandle<D> for OwnedJobHandle<D, R, P> {
-    fn get_id(&self) -> &str {
-        &self.id
-    }
-    fn get_name(&self) -> &str {
-        &self.name
-    }
-    fn get_pool(&self) -> &Pool {
-        &self.pool
-    }
-}
-
-impl<'a, D, R, P> JobHandle<D> for LightJobHandle<'a, D, R, P> {
-    fn get_id(&self) -> &str {
-        &self.id
-    }
-    fn get_name(&self) -> &str {
-        &self.name
-    }
-    fn get_pool(&self) -> &Pool {
-        &self.pool
+        Self {
+            pool,
+            queue_name,
+            semaphore,
+            background_handles: todo!(),
+            job_receiver,
+            phantom: PhantomData,
+        }
     }
 }
 
@@ -125,75 +106,5 @@ async fn background_work(pool: Pool, queue_name: String) -> () {
             dbg!(e);
         }
         sleep(Duration::from_millis(500)).await;
-    }
-}
-
-impl CallbackWorker {
-    pub async fn new(pool: Pool, queue_name: impl ToString, parallelity: usize) -> Self {
-        let background_handle =
-            tokio::task::spawn(background_work(pool.clone(), queue_name.to_string()));
-        Self {
-            pool,
-            queue_name: queue_name.to_string(),
-            semaphore: Semaphore::new(std::cmp::max(parallelity, 1)),
-            background_handle,
-        }
-    }
-
-    pub async fn get_job_blocking<D, R, P>(&self) -> Result<JobHandle<D, R, P>>
-    where
-        P: DeserializeOwned,
-        D: DeserializeOwned,
-        R: DeserializeOwned,
-    {
-        let mut con = self.pool.get().await?;
-        let semaphore_handle = self.semaphore.acquire().await?;
-        let job_id: String;
-        loop {
-            let job_id_result: Option<String> = con
-                .blmove(
-                    format!("bull:{}:wait", self.queue_name),
-                    format!("bull:{}:active", self.queue_name),
-                    redis::Direction::Left,
-                    redis::Direction::Right,
-                    Duration::from_secs(3).as_secs_f64(),
-                )
-                .await?;
-            if job_id_result.is_none() {
-                continue;
-            }
-            job_id = job_id_result.unwrap();
-            break;
-        }
-
-        let job_state: JobState<_, R> = con
-            .hgetall(format!("bull:{}:{}", self.queue_name, job_id))
-            .await?;
-        Ok(JobHandle {
-            id: job_id,
-            name: job_state.name,
-            data: job_state.data,
-            queue_name: &self.queue_name,
-            pool: &self.pool,
-            semaphore_handle,
-            phantom: PhantomData,
-        })
-    }
-
-    pub async fn work_blocking_callback<D, R, P>(
-        &self,
-        callback: impl AsyncFn(JobHandle<D, R, P>) -> Result<R, String>,
-    ) -> Result<()>
-    where
-        P: DeserializeOwned,
-        D: DeserializeOwned,
-        R: DeserializeOwned,
-    {
-        loop {
-            let job = self.get_job_blocking().await?;
-            match  callback(job).await {
-                Ok(v) => job.
-            }
-        }
     }
 }

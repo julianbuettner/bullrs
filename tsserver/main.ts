@@ -19,7 +19,7 @@ const myQueue = new Queue('myqueue', {
 
 async function main() {
     await myQueue.setGlobalConcurrency(32);
-    const job = await myQueue.add("HIIII", 99);
+    const job = await myQueue.add("HIIII", 99, { keepLogs: 22, attempts: 99, continueParentOnFailure: true, lifo: false});
     // const job = await myQueue.add("JobX", { "a": 1, "b": 2 }, {
     //     delay: 10 * 1000,
     //     attempts: 33,
