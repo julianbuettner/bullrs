@@ -1,0 +1,19 @@
+{
+  "name": "tsserver",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "ts-node main.ts",
+    "worker": "ts-node worker.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "bullmq": "^5.52.3",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
+  }
+}
