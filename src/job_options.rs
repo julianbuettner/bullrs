@@ -112,6 +112,9 @@ pub struct JobOptions {
     /// If set to false and the job fails, it's parent is marked as failed as well.
     #[serde(rename = "cpof")]
     pub continue_parent_on_failure: Option<bool>,
+
+    #[serde(rename = "de")]
+    pub deduplication_something: Option<String>,
 }
 
 impl Default for JobOptions {
@@ -132,6 +135,7 @@ impl Default for JobOptions {
             size_limit: None,
             stack_trace_limit: None,
             timestamp: None,
+            deduplication_something: None,
         }
     }
 }

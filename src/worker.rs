@@ -98,6 +98,7 @@ async fn pull_job_thread<D, R, P, E>(
     D: DeserializeOwned,
 {
     let id = Uuid::new_v4().to_string();
+    let mut counter: usize = 0;
     loop {
         let mut con = pool.get().await.unwrap();
         let mts = MoveToActive::<D> {

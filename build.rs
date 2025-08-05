@@ -6,7 +6,10 @@ use std::{
 };
 
 fn get_resolved_lua_content(path: &PathBuf) -> String {
-    let file: File = OpenOptions::new().read(true).open(&path).unwrap();
+    let file: File = OpenOptions::new()
+        .read(true)
+        .open(&path)
+        .expect("provided path of lua file should exist");
     let content = read_to_string(file).unwrap();
 
     let mut new_content = String::with_capacity(content.len());

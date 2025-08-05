@@ -31,12 +31,12 @@ where
             .as_ref()
             .map(|s| s.as_str())
             .unwrap_or(&"");
-        let parent_key: Option<String> = None; // TODO
-        let wait_children_key: Option<String> = None;
-        let parent_dependencies_key: Option<String> = None;
+        let parent_key: Option<String> = None;
+        let wait_children_key = "";
+        let parent_dependencies_key = "";
         let parent: Option<String> = None;
-        let repeat_job_key: Option<String> = None;
-        let deduplication_key: Option<String> = None;
+        let repeat_job_key = "";
+        let deduplication_key = "";
         let job_name = self.job_name;
         let timestamp = self
             .job_options
@@ -55,8 +55,10 @@ where
             repeat_job_key,
             deduplication_key,
         );
-
-        ADD_STANDARD_JOB
+        dbg!(&arguments_tuple);
+        dbg!(&self.job_options);
+        let pl = serde_json::to_string(&self.job_options);
+        Ok(ADD_STANDARD_JOB
             .key(self.queue.wait())
             .key(self.queue.paused())
             .key(self.queue.meta())
@@ -70,5 +72,6 @@ where
             .arg(rmp_serde::to_vec_named(self.job_options).unwrap())
             .invoke_async(con)
             .await
+            .unwrap())
     }
 }

@@ -37,7 +37,7 @@ impl<'a, D> InvokeLuaScript for MoveToActive<'a, D>
 where
     D: DeserializeOwned,
 {
-    type Return = (String, String, String, String);
+    type Return = (Option<String>, String, String, String);
     async fn call(
         self: Self,
         con: &mut impl redis::aio::ConnectionLike,
@@ -60,7 +60,7 @@ where
 
         let now = Utc::now();
 
-        let x: RedisResult<(String, i64, i64, i64)> = MOVE_TO_ACTIVE
+        let x: RedisResult<(String, String, i64, i64)> = MOVE_TO_ACTIVE
             .key(self.queue.wait())
             .key(self.queue.active())
             .key(self.queue.prioritized())
