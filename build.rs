@@ -1,11 +1,12 @@
 use std::{
+    collections::{HashMap, HashSet},
     env,
     fs::{self, File, OpenOptions, create_dir_all},
     io::{Write, read_to_string},
     path::{Path, PathBuf},
 };
 
-fn get_resolved_lua_content(path: &PathBuf) -> String {
+fn get_resolved_lua_content(path: &PathBuf, resolved_accu: &mut HashSet<PathBuf>) -> String {
     let file: File = OpenOptions::new()
         .read(true)
         .open(&path)
@@ -23,11 +24,16 @@ fn get_resolved_lua_content(path: &PathBuf) -> String {
                 .trim_matches('"');
             let filename = format!("{filename}.lua");
             let sub_path = path.parent().unwrap().join(&filename);
+            if resolved_accu.contains(&sub_path) {
+                new_content += format!("--- Already included {}\n", filename).as_str();
+                continue;
+            }
+            resolved_accu.insert(sub_path.clone());
 
             let inplace: String = format!(
                 "\n--- Resolved include {0}\n{1}\n--- End resolved include {0}\n\n",
                 filename,
-                get_resolved_lua_content(&sub_path)
+                get_resolved_lua_content(&sub_path, resolved_accu)
             );
             new_content += inplace.as_str();
         } else {
@@ -57,7 +63,8 @@ fn main() {
         if entry.path().extension().and_then(|s| s.to_str()) != Some("lua") {
             continue;
         }
-        let content = get_resolved_lua_content(&entry.path());
+        let mut already_included = HashSet::new();
+        let content = get_resolved_lua_content(&entry.path(), &mut already_included);
         let filename = entry.file_name();
         let out_path = output_dir.join(filename);
         println!(
