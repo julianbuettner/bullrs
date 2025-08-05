@@ -1,0 +1,137 @@
+use std::time::Duration;
+
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Deserialize, Serialize)]
+pub enum BackoffType {
+    /// After try n fails, wait delay * (n ^ 2) before retrying.
+    Exponential,
+    /// After try n fails, wait delay * n before retrying.
+    Fixed,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct BackoffOptions {
+    /// Delay after next try for fixed backoff, or basis duration
+    /// for calculating exponential backoff. It makes no sense to not
+    /// provide a delay, but having it optional maintains compatibility with BullMQ.
+    /// In this case, retries would happen instant.
+    #[serde(with = "crate::milliserde::duration_millis_option")]
+    pub delay: Option<Duration>,
+    /// Choose between exponential and fixed backoff.
+    pub r#type: BackoffType,
+    /// Add a random factor to the delay, for a jitter
+    /// of 0.1 (10%) the delay will be between 0.9 * original delay
+    /// and 1.1 * original delay. This can be useful to distribute
+    /// retries over time, if many jobs failed at once.
+    pub jitter: Option<f32>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub enum Backoff {
+    #[serde(with = "crate::milliserde::duration_millis")]
+    Number(Duration),
+    BackoffOptions(BackoffOptions),
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ParentOptions {
+    /// ID of the parent
+    pub id: String,
+    // Queue name in which the parent is placed,
+    // including namespace separator, colon.
+    queue: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub enum KeepJobs {
+    /// How many jobs to keep after processing
+    Count(usize),
+    /// Just keep or delete job after processing
+    Bool(bool),
+    /// If providing both values,
+    /// jobs will be cleared for both configurations.
+    Config {
+        age: Option<Duration>,
+        count: Option<usize>,
+    },
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct JobOptions {
+    /// Maximum tries to get the job done.
+    pub attempts: Option<usize>,
+    /// Describe _when_ a job should be retried on failure,
+    /// and attempts > 1. With more than one attempt and no
+    /// backoff, the job is directly retried.
+    pub backoff: Option<Backoff>,
+    /// Initial delay before first try.
+    #[serde(with = "crate::milliserde::duration_millis_option")]
+    pub delay: Option<Duration>,
+    /// Overwrite JobID. By default, every job gets an auto incremented
+    /// integer (compare to PostgreSQL Serial), but you can define any string.
+    /// If a job with the given id already exists, it is not added. Use
+    /// the deduplication feature for deduplication.
+    pub job_id: Option<String>,
+    /// How many logs entries too keep.
+    #[serde(rename = "kl")]
+    pub keep_logs: Option<usize>,
+    /// Last In First Out, makes rarely sense.
+    pub lifo: Option<bool>,
+    /// Configure parent job relation
+    pub parent: Option<ParentOptions>,
+    // Internal value used by repeatable jobs
+    #[serde(with = "crate::milliserde::duration_millis_option")]
+    prev_millis: Option<Duration>,
+    /// No priority means highest priority. Higher numbers
+    /// mean lower priority. Using priority comes at a cost though.
+    /// A sorted set (compare to datastructure heap) has to be maintained.
+    /// Adding and popping jobs is in _O(log(n))_ instead of _O(1)_.
+    /// `None` has highest priority, then Some(0) and the lowest possible
+    /// priority is Some(2_097_152).
+    pub priority: Option<usize>,
+    /// When and how to keep jobs after completing
+    pub remove_on_complete: Option<KeepJobs>,
+    /// When and how to keep jobs after failing and exceeding all attempts
+    pub remove_on_fail: Option<KeepJobs>,
+
+    // repeat skipped for now
+    // repeatJobKey skipped for now
+    /// How many bytes is the job data allowed to have
+    pub size_limit: Option<usize>,
+
+    /// Maximum line count the stack is allowed to have
+    pub stack_trace_limit: Option<usize>,
+
+    /// When was job created, usually set automatically.
+    #[serde(with = "crate::milliserde::timestamp_millis_option")]
+    pub timestamp: Option<DateTime<Utc>>,
+
+    /// Whether or not it's parent should continue on failure.
+    /// If set to false and the job fails, it's parent is marked as failed as well.
+    #[serde(rename = "cpof")]
+    pub continue_parent_on_failure: Option<bool>,
+}
+
+impl Default for JobOptions {
+    fn default() -> Self {
+        Self {
+            attempts: None,
+            backoff: None,
+            continue_parent_on_failure: None,
+            delay: None,
+            job_id: None,
+            keep_logs: None,
+            lifo: None,
+            parent: None,
+            prev_millis: None,
+            priority: None,
+            remove_on_complete: None,
+            remove_on_fail: None,
+            size_limit: None,
+            stack_trace_limit: None,
+            timestamp: None,
+        }
+    }
+}

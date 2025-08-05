@@ -3,16 +3,16 @@ use std::{marker::PhantomData, sync::Arc, time::Duration};
 use anyhow::{Result, bail};
 use chrono::{DateTime, Utc};
 use deadpool_redis::Pool;
-use log::{debug, trace, warn};
+use log::{debug, trace};
 use redis::{AsyncCommands as _, RedisResult};
-use serde::{Deserialize, de::DeserializeOwned};
+use serde::de::DeserializeOwned;
 use tokio::{
-    sync::{mpsc::Sender, OwnedSemaphorePermit, Semaphore},
+    sync::{OwnedSemaphorePermit, Semaphore, mpsc::Sender},
     task::{self, JoinHandle},
     time::sleep,
 };
 
-use crate::{JobOptions, queue::QueueName};
+use crate::{job_options::JobOptions, queue::QueueName};
 
 const JOB_POLL_ERROR_COOLDOWN: Duration = Duration::from_millis(100);
 
@@ -118,6 +118,7 @@ async fn wait_for_new_jobs<D, R, P, E>(
             queue_name: queue_name.clone(),
             pool: pool.clone(),
             semaphore_permit,
+            lock_refresh_handle: todo!(),
             phantom: PhantomData::<(D, R, P, E)>,
         };
 
@@ -250,7 +251,7 @@ where
             id: self.id,
             job_state,
             semaphore: self.semaphore_permit,
-            lock_refresh_handle: self.pool
+            lock_refresh_handle: todo!(),
             phantom: PhantomData,
         })
     }

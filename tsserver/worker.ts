@@ -8,7 +8,7 @@ const myQueue = new Queue('myqueue', {
     },
 });
 
-const myWorker = new Worker('myqueue', async job => {
+const myWorker = new Worker('pinkpony', async job => {
     console.log(`Received job ${job.name}: ${JSON.stringify(job)} `);
     await job.updateProgress("Some Progress is happening here...");
     await job.log("Something happened here");

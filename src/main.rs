@@ -1,20 +1,19 @@
 use anyhow::Result;
 use deadpool_redis::{Config, Runtime};
-use job_depre::{JobScheduling, JobState};
-use luacommands::UPDATE_DATA;
 use queue::Queue;
-use redis::{Commands, Connection, aio::MultiplexedConnection};
 use std::{any::Any, collections::HashMap, marker::PhantomData, time::Duration};
 use tokio::time::sleep;
-use worker::{CallbackWorker, JobHandle};
 
 use chrono::{DateTime, Utc};
-use redis::{AsyncCommands as _, FromRedisValue, JsonAsyncCommands, RedisError, from_redis_value};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+
+use crate::{job_options::JobOptions, worker::Worker};
+
 mod job;
-mod job_depre;
 mod job_lock;
+mod job_options;
 mod luacommands;
+mod milliserde;
 mod queue;
 mod worker;
 
@@ -22,23 +21,10 @@ mod worker;
 struct Payload {
     a: i32,
     b: i32,
+    c: i32,
 }
 
-#[derive(Debug, Deserialize)]
-struct JobOptions {
-    /// Maximum Attempts to make
-    attempts: Option<usize>,
-    /// How many logs too keep
-    #[serde(rename = "kl")]
-    keepLogs: Option<usize>,
-    /// Last In First Out, makes rarely sense
-    lifo: Option<bool>,
-    /// Continue Parent Job on Failure
-    #[serde(rename = "cpof")]
-    continueParentOnFailure: Option<bool>,
-}
-
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct Data(pub i64);
 
 #[derive(Serialize, Deserialize)]
@@ -52,36 +38,16 @@ async fn main() -> anyhow::Result<()> {
     let cfg = Config::from_url("redis://127.0.0.1/");
     let pool = cfg.create_pool(Some(Runtime::Tokio1)).unwrap();
 
-    let worker = CallbackWorker::new(pool.clone(), "myqueue", 2);
-    println!("Block now waiting...");
-    worker
-        .await
-        .work_blocking_callback(async |j: JobHandle<Data, Return, Progress>| {
-            println!("Received job {} with name {}", j.id, j.name);
-            Ok(Return(32))
-        })
+    let q: Queue<Data, Return> = Queue::new(pool, "pinkpony");
+    let id = q
+        .add("Somejob", &Data(99), &JobOptions::default())
         .await
         .unwrap();
+    println!("Added job with id: {id}");
 
-    let mut q: Queue<usize, usize> = Queue::new(pool, "myqueue");
-    println!(
-        "Global concurrency: {:?}",
-        q.get_global_concurrency().await?
-    );
-
-    let job_id = q
-        .schedule(JobScheduling {
-            name: "Heyo".to_string(),
-            data: 1024,
-            priority: None,
-        })
-        .await?;
-    println!("Scheduled Job with id: {:?}", job_id);
-
-    sleep(Duration::from_secs_f32(0.5)).await;
-
-    let job_state: JobState<_, _> = q.get_job_state(&job_id).await.unwrap();
-    println!("Job state after 500ms: {job_state:#?}");
+    let worker = q.worker();
+    // let job = worker
+    sleep(Duration::from_millis(1000)).await;
 
     Ok(())
 }

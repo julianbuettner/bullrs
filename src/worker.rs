@@ -5,7 +5,8 @@ use chrono::Utc;
 use deadpool_redis::Pool;
 use log::trace;
 use redis::{AsyncCommands, RedisResult, aio::MultiplexedConnection};
-use serde::de::DeserializeOwned;
+use serde::{Serialize, de::DeserializeOwned};
+use serde_json::to_string;
 use tokio::{
     spawn,
     sync::{
@@ -15,22 +16,26 @@ use tokio::{
     task::JoinHandle,
     time::sleep,
 };
+use uuid::Uuid;
 
 use crate::{
-    job::LightJobHandle, job_depre::JobState, luacommands::{InvokeLuaScript as _, MoveStalledJobsToWait}, queue::QueueName
+    job::LightJobHandle,
+    luacommands::{InvokeLuaScript as _, MoveStalledJobsToWait, MoveToActive, RateLimiter},
+    queue::QueueName,
 };
 
 pub struct Worker<D, R, P = String, E = String> {
     pool: Pool,
     queue_name: QueueName,
     semaphore: Arc<Semaphore>,
-    background_handles: JoinHandle<Vec<()>>,
+    background_handles: Vec<JoinHandle<()>>,
     job_receiver: Receiver<LightJobHandle<D, R, P, E>>,
+    uid: String,
     phantom: PhantomData<(D, R, P, E)>, // Data, Result, Progress, Error
 }
 
 /// Parameterize a worker. The defaults
-/// should be fine. For high performance applications,
+/// should be fine for most use cases. For high performance applications,
 /// increase parallel_jobs or parallel_connections.
 #[derive(Clone, Debug)]
 pub struct WorkerArgs {
@@ -38,32 +43,75 @@ pub struct WorkerArgs {
     /// Parallel jobs should be more than parallel connections to be meaningful.
     pub parallel_jobs: usize,
     /// How many parallel connections should a worker have to the Redis database.
-    /// The jobs per second are limited by parallel_connections divided by redis ping.
+    /// The jobs per second are limited by redis round trip divided by parallel_connections.
     pub parallel_connections: usize,
 }
 
 impl Default for WorkerArgs {
     fn default() -> Self {
         Self {
-            parallel_jobs: 1024,
-            parallel_connections: 32,
+            parallel_jobs: 332,
+            parallel_connections: 1,
         }
     }
 }
 
-impl<D, R, P, E> Worker<D, R, P, E> {
-    fn new(pool: Pool, queue_name: QueueName, args: WorkerArgs) -> Self {
+impl<D, R, P, E> Worker<D, R, P, E>
+where
+    R: Send + 'static,
+    P: Send + 'static,
+    D: Send + 'static + DeserializeOwned,
+    E: Send + 'static,
+{
+    pub fn new(pool: Pool, queue_name: QueueName, args: WorkerArgs) -> Self {
+        let uid = uuid::Uuid::new_v4().to_string();
         let semaphore = Arc::new(Semaphore::new(args.parallel_jobs));
         let (tx, job_receiver) = channel(args.parallel_jobs);
 
+        let pull_thread_handles: Vec<_> = (0..args.parallel_connections)
+            .map(|_| {
+                tokio::spawn(pull_job_thread(
+                    pool.clone(),
+                    queue_name.clone(),
+                    tx.clone(),
+                ))
+            })
+            .collect();
+
         Self {
+            uid,
             pool,
             queue_name,
             semaphore,
-            background_handles: todo!(),
+            background_handles: pull_thread_handles,
             job_receiver,
             phantom: PhantomData,
         }
+    }
+}
+
+async fn pull_job_thread<D, R, P, E>(
+    pool: Pool,
+    queue_name: QueueName,
+    job_sender: Sender<LightJobHandle<D, R, P, E>>,
+) where
+    D: DeserializeOwned,
+{
+    let id = Uuid::new_v4().to_string();
+    loop {
+        let mut con = pool.get().await.unwrap();
+        let mts = MoveToActive::<D> {
+            queue: &queue_name,
+            worker_id: &id,
+            limiter: RateLimiter {
+                max: 0,
+                duration: Duration::from_millis(0),
+            },
+            lock_duration: Duration::from_millis(0),
+            token: &id,
+            phantom: PhantomData, // TODO without
+        };
+        let get_job = mts.call(&mut con).await.unwrap();
     }
 }
 
@@ -80,7 +128,7 @@ impl Drop for CallbackWorker {
     }
 }
 
-async fn background_work_setp(pool: &Pool, queue_name: &String) -> anyhow::Result<()> {
+async fn background_work_setup(pool: &Pool, queue_name: &String) -> anyhow::Result<()> {
     let mut con = pool.get().await?;
     let q = QueueName::new(queue_name);
     let job = MoveStalledJobsToWait {
@@ -102,7 +150,7 @@ async fn background_work_setp(pool: &Pool, queue_name: &String) -> anyhow::Resul
 
 async fn background_work(pool: Pool, queue_name: String) -> () {
     loop {
-        if let Err(e) = background_work_setp(&pool, &queue_name).await {
+        if let Err(e) = background_work_setup(&pool, &queue_name).await {
             dbg!(e);
         }
         sleep(Duration::from_millis(500)).await;
