@@ -45,7 +45,7 @@ where
         #[derive(Debug, Serialize)]
         struct Opts<'a> {
             token: &'a str,
-            #[serde(with = "crate::milliserde::duration_millis")]
+            #[serde(with = "crate::milliserde::duration_millis", rename = "lockDuration")]
             lock_duration: Duration,
             limiter: RateLimiter,
             name: &'a str,

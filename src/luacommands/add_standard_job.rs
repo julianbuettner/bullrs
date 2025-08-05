@@ -64,6 +64,7 @@ where
             .key(self.queue.meta())
             .key(self.queue.id())
             .key(self.queue.completed())
+            .key(self.queue.delayed())
             .key(self.queue.active())
             .key(self.queue.events())
             .key(self.queue.marker())

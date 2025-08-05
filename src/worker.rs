@@ -108,7 +108,7 @@ async fn pull_job_thread<D, R, P, E>(
                 max: 0,
                 duration: Duration::from_millis(0),
             },
-            lock_duration: Duration::from_millis(0),
+            lock_duration: Duration::from_secs(30),
             token: &id,
             phantom: PhantomData, // TODO without
         };
