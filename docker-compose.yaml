@@ -10,6 +10,11 @@ services:
       - redis-data:/data
     restart: unless-stopped
 
+  bullboard:
+    build: ./bullboardserver
+    environment:
+      REDIS_URL: redis://redis/
+
 volumes:
   redis-data:
 
