@@ -14,6 +14,8 @@ services:
     build: ./bullboardserver
     environment:
       REDIS_URL: redis://redis/
+    ports:
+      - "3000:3000"
 
 volumes:
   redis-data:

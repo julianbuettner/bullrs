@@ -1,9 +1,9 @@
 use core::{marker::PhantomData, todo};
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 use chrono::{DateTime, Utc};
-use redis::RedisResult;
-use serde::{Serialize, de::DeserializeOwned};
+use redis::{FromRedisValue, RedisResult};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{
     luacommands::{InvokeLuaScript, MOVE_TO_ACTIVE},
@@ -33,6 +33,37 @@ pub struct RateLimiter {
     pub duration: Duration,
 }
 
+#[derive(Debug)]
+enum JobDataOrExitCode {
+    JobData(HashMap<String, String>),
+    ExitCode(i64),
+}
+
+impl FromRedisValue for JobDataOrExitCode {
+    fn from_redis_value(v: &redis::Value) -> RedisResult<Self> {
+        match v {
+            redis::Value::Int(i) => Ok(Self::ExitCode(*i)),
+            redis::Value::Map(m) => {
+                let mut res = HashMap::new();
+                for (key, value) in m.into_iter() {
+                    if let (redis::Value::BulkString(kk), redis::Value::BulkString(vv)) =
+                        (key, value)
+                    {
+                        res.insert(
+                            String::from_utf8(kk.clone()).expect("TODO"),
+                            String::from_utf8(vv.clone()).expect("TODO"),
+                        );
+                    } else {
+                        todo!("Raise propper error");
+                    }
+                }
+                Ok(Self::JobData(res))
+            }
+            _ => todo!(),
+        }
+    }
+}
+
 impl<'a, D> InvokeLuaScript for MoveToActive<'a, D>
 where
     D: DeserializeOwned,
@@ -60,7 +91,7 @@ where
 
         let now = Utc::now();
 
-        let x: RedisResult<(String, String, i64, i64)> = MOVE_TO_ACTIVE
+        let x: RedisResult<(JobDataOrExitCode, String, i64, i64)> = MOVE_TO_ACTIVE
             .key(self.queue.wait())
             .key(self.queue.active())
             .key(self.queue.prioritized())

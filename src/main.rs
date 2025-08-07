@@ -39,11 +39,11 @@ async fn main() -> anyhow::Result<()> {
     let pool = cfg.create_pool(Some(Runtime::Tokio1)).unwrap();
 
     let q: Queue<Data, Return> = Queue::new(pool, "pinkpony");
-    let id = q
-        .add("Somejob", &Data(99), &JobOptions::default())
-        .await
-        .unwrap();
-    println!("Added job with id: {id}");
+    // let id = q
+    //     .add("Somejob", &Data(99), &JobOptions::default())
+    //     .await
+    //     .unwrap();
+    // println!("Added job with id: {id}");
 
     let worker = q.worker();
     // let job = worker
