@@ -7,7 +7,7 @@ mod move_to_active;
 
 pub use add_standard_job::AddStandardJob;
 pub use move_stalled_jobs_to_wait::MoveStalledJobsToWait;
-pub use move_to_active::{MoveToActive, RateLimiter};
+pub use move_to_active::{MoveToActive, MoveToActiveResult, MoveToActiveReturn, RateLimiter};
 
 macro_rules! load_script {
     ($filename:expr) => {

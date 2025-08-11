@@ -29,7 +29,7 @@ async fn keep_job_lock_inner(queue_name: QueueName, pool: Pool, id: String) {
             }
             // lua scripts
         }
-        sleep(LOCK_REFRESH_COOLDOWN);
+        sleep(LOCK_REFRESH_COOLDOWN).await;
     }
 }
 

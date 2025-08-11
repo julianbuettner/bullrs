@@ -12,21 +12,51 @@ use tokio::{
     time::sleep,
 };
 
-use crate::{job_options::JobOptions, queue::QueueName};
+use crate::{Progress, job_options::JobOptions, queue::QueueName};
 
 const JOB_POLL_ERROR_COOLDOWN: Duration = Duration::from_millis(100);
 
-pub struct LightJobHandle<D, R, P = String, E = String> {
+pub struct LightJobHandle<D, R> {
     queue_name: QueueName,
     pool: Pool,
     id: String,
     semaphore_permit: OwnedSemaphorePermit,
-    phantom: PhantomData<(D, R, P, E)>, // Data, Result, Progress, Error
+    data: D,
+    phantom: PhantomData<R>, // Data, Result
     lock_refresh_handle: JoinHandle<()>,
 }
 
+impl<D, R> LightJobHandle<D, R> {
+    pub fn new(
+        queue_name: QueueName,
+        pool: Pool,
+        id: String,
+        semaphore_permit: OwnedSemaphorePermit,
+        data: D,
+        lock_refresh_handle: JoinHandle<()>,
+    ) -> Self {
+        Self {
+            queue_name,
+            pool,
+            id,
+            semaphore_permit,
+            data,
+            lock_refresh_handle,
+            phantom: PhantomData,
+        }
+    }
+
+    pub fn data(&self) -> &D {
+        &self.data
+    }
+    pub async fn done(self, value: R) {
+        let con = self.pool.get().await.expect("TODO");
+        
+    }
+}
+
 // All possible fields a Job can have in the Redis HashMap
-struct JobState<D, R, P> {
+struct JobState<D, R> {
     atm: Option<usize>, // attempts made
     data: D,
     delay: Option<Duration>,
@@ -35,7 +65,7 @@ struct JobState<D, R, P> {
     name: String,
     opts: Option<JobOptions>,
     priority: Option<usize>,
-    progress: Option<P>,
+    progress: Option<Progress>,
     result: Option<R>,
     stc: Option<usize>,
     timestamp: DateTime<Utc>,
@@ -46,7 +76,7 @@ pub struct JobHandle<D, R, P = String, E = String> {
     queue_name: QueueName,
     pool: Pool,
     id: String,
-    job_state: JobState<D, R, P>,
+    job_state: JobState<D, R>,
     semaphore: OwnedSemaphorePermit,
     lock_refresh_handle: JoinHandle<()>,
     phantom: PhantomData<(D, R, P, E)>, // Data, Result, Progress, Error
@@ -64,72 +94,72 @@ impl<D, R, P> JobHandle<D, R, P> {
     }
 }
 
-async fn wait_for_new_jobs<D, R, P, E>(
-    tx: Sender<JobHandle<D, R, P, E>>,
-    queue_name: QueueName,
-    pool: Pool,
-    semaphore: Arc<Semaphore>,
-) {
-    const TIMEOUT: Duration = Duration::from_secs(120);
-    loop {
-        let semaphore_permit = semaphore.clone().acquire_owned().await;
-        if semaphore_permit.is_err() {
-            // Semaphore has been closed
-            return;
-        }
-        let semaphore_permit = semaphore_permit.unwrap();
-        let con = pool.get().await;
-        if let Err(e) = con {
-            trace!("Error during getting Redis connection from pool: {:?}", e);
-            sleep(JOB_POLL_ERROR_COOLDOWN).await;
-            continue;
-        }
-        let mut con = con.unwrap();
-        let job_id_result_future = con.blmove(
-            queue_name.wait(),
-            queue_name.active(),
-            // TODO check if directions are right
-            redis::Direction::Left,
-            redis::Direction::Right,
-            TIMEOUT.as_secs_f64(),
-        );
-        // Await new job id or return if receiver closed
-        let job_id = tokio::select!(
-            job_id_result = job_id_result_future => {
-                let jir: RedisResult<Option<String>> = job_id_result;
-                if let Err(e) = jir {
-                    trace!("RedisError getting Redis Job from queue: {:?}", e);
-                    sleep(JOB_POLL_ERROR_COOLDOWN).await;
-                    continue;
-                }
-                jir.unwrap()
-            },
-            () = tx.closed() => {
-                break;
-            },
-        );
-        if job_id.is_none() {
-            continue;
-        }
-        let job_id = job_id.unwrap();
+// async fn wait_for_new_jobs<D, R, P, E>(
+//     tx: Sender<JobHandle<D, R, P, E>>,
+//     queue_name: QueueName,
+//     pool: Pool,
+//     semaphore: Arc<Semaphore>,
+// ) {
+// const TIMEOUT: Duration = Duration::from_secs(120);
+// loop {
+//     let semaphore_permit = semaphore.clone().acquire_owned().await;
+//     if semaphore_permit.is_err() {
+//         // Semaphore has been closed
+//         return;
+//     }
+//     let semaphore_permit = semaphore_permit.unwrap();
+//     let con = pool.get().await;
+//     if let Err(e) = con {
+//         trace!("Error during getting Redis connection from pool: {:?}", e);
+//         sleep(JOB_POLL_ERROR_COOLDOWN).await;
+//         continue;
+//     }
+//     let mut con = con.unwrap();
+//     let job_id_result_future = con.blmove(
+//         queue_name.wait(),
+//         queue_name.active(),
+//         // TODO check if directions are right
+//         redis::Direction::Left,
+//         redis::Direction::Right,
+//         TIMEOUT.as_secs_f64(),
+//     );
+//     // Await new job id or return if receiver closed
+//     let job_id = tokio::select!(
+//         job_id_result = job_id_result_future => {
+//             let jir: RedisResult<Option<String>> = job_id_result;
+//             if let Err(e) = jir {
+//                 trace!("RedisError getting Redis Job from queue: {:?}", e);
+//                 sleep(JOB_POLL_ERROR_COOLDOWN).await;
+//                 continue;
+//             }
+//             jir.unwrap()
+//         },
+//         () = tx.closed() => {
+//             break;
+//         },
+//     );
+//     if job_id.is_none() {
+//         continue;
+//     }
+//     let job_id = job_id.unwrap();
+//
+//     let light_job_handle = LightJobHandle {
+//         id: job_id,
+//         queue_name: queue_name.clone(),
+//         pool: pool.clone(),
+//         semaphore_permit,
+//         lock_refresh_handle: todo!(),
+//         phantom: PhantomData::<(D, R, P, E)>,
+//     };
+//
+//     // if job_id_result.is_err() {
+//     //     trace!("Error trying to fetch ")
+//     // }
+//     todo!()
+// }
+// }
 
-        let light_job_handle = LightJobHandle {
-            id: job_id,
-            queue_name: queue_name.clone(),
-            pool: pool.clone(),
-            semaphore_permit,
-            lock_refresh_handle: todo!(),
-            phantom: PhantomData::<(D, R, P, E)>,
-        };
-
-        // if job_id_result.is_err() {
-        //     trace!("Error trying to fetch ")
-        // }
-        todo!()
-    }
-}
-
-struct Intermediate<D, R, P> {
+struct Intermediate<D, R> {
     atm: Option<usize>, // attempts made
     data: Option<D>,
     delay: Option<Duration>,
@@ -138,14 +168,14 @@ struct Intermediate<D, R, P> {
     name: Option<String>,
     opts: Option<JobOptions>,
     priority: Option<usize>,
-    progress: Option<P>,
+    progress: Option<Progress>,
     result: Option<R>,
     stc: Option<usize>,
     timestamp: Option<DateTime<Utc>>,
     stack_trace: Option<String>,
 }
 
-impl<D, R, P> Default for Intermediate<D, R, P> {
+impl<D, R> Default for Intermediate<D, R> {
     fn default() -> Self {
         Self {
             atm: None,
@@ -165,16 +195,15 @@ impl<D, R, P> Default for Intermediate<D, R, P> {
     }
 }
 
-impl<D, R, P, E> LightJobHandle<D, R, P, E>
+impl<D, R> LightJobHandle<D, R>
 where
     D: DeserializeOwned,
     R: DeserializeOwned,
-    P: DeserializeOwned,
 {
-    pub async fn into_job_handle(self) -> Result<JobHandle<D, R, P, E>> {
+    pub async fn into_job_handle(self) -> Result<JobHandle<D, R>> {
         let mut con = self.pool.get().await?;
 
-        let mut intermediate: Intermediate<D, R, P> = Default::default();
+        let mut intermediate: Intermediate<D, R> = Default::default();
 
         let res: Vec<String> = con.hgetall(self.queue_name.job(&self.id)).await?;
         if res.len() % 2 != 0 {

@@ -1,4 +1,5 @@
 use std::{
+    fmt::Debug,
     marker::PhantomData,
     sync::Arc,
     time::{Duration, SystemTime},
@@ -18,10 +19,10 @@ use crate::{
 /// Performance note: cloning the queue is
 /// cheap, not performing heap allocations.
 #[derive(Clone)]
-pub struct Queue<D, R, P = String> {
+pub struct Queue<D, R> {
     name: QueueName,
     pool: Pool,
-    phantom: PhantomData<(D, R, P)>, // Data, Result, Progress
+    phantom: PhantomData<(D, R)>, // Data, Result
 }
 
 impl<D, R> Queue<D, R> {
@@ -33,10 +34,10 @@ impl<D, R> Queue<D, R> {
         }
     }
 
-    pub fn worker(&self) -> Worker<D, R, String>
+    pub fn worker(&self) -> Worker<D, R>
     where
         R: Send + 'static,
-        D: Send + DeserializeOwned + 'static,
+        D: Send + DeserializeOwned + Debug + 'static,
     {
         Worker::new(self.pool.clone(), self.name.clone(), WorkerArgs::default())
     }

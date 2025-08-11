@@ -1,7 +1,7 @@
 use anyhow::Result;
 use deadpool_redis::{Config, Runtime};
 use queue::Queue;
-use std::{any::Any, collections::HashMap, marker::PhantomData, time::Duration};
+use std::{any::Any, collections::HashMap, env::args, marker::PhantomData, time::Duration};
 use tokio::time::sleep;
 
 use chrono::{DateTime, Utc};
@@ -14,7 +14,9 @@ mod job_lock;
 mod job_options;
 mod luacommands;
 mod milliserde;
+mod progress;
 mod queue;
+mod redisext;
 mod worker;
 
 #[derive(Debug, Deserialize)]
@@ -24,8 +26,10 @@ struct Payload {
     c: i32,
 }
 
-#[derive(Deserialize, Serialize)]
-struct Data(pub i64);
+#[derive(Deserialize, Serialize, Debug)]
+struct Data {
+    vehicle: String,
+}
 
 #[derive(Serialize, Deserialize)]
 struct Return(pub i64);
@@ -33,21 +37,40 @@ struct Return(pub i64);
 #[derive(Deserialize, Serialize)]
 struct Progress(pub f32);
 
+async fn create_job(q: &Queue<Data, Return>) {
+    let id = q
+        .add(
+            "Somejob",
+            &Data {
+                vehicle: "Boat".into(),
+            },
+            &JobOptions::default(),
+        )
+        .await
+        .unwrap();
+    println!("Added job with id: {id}");
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cfg = Config::from_url("redis://127.0.0.1/");
     let pool = cfg.create_pool(Some(Runtime::Tokio1)).unwrap();
+    pool.resize(32);
 
     let q: Queue<Data, Return> = Queue::new(pool, "pinkpony");
-    // let id = q
-    //     .add("Somejob", &Data(99), &JobOptions::default())
-    //     .await
-    //     .unwrap();
-    // println!("Added job with id: {id}");
 
-    let worker = q.worker();
-    // let job = worker
-    sleep(Duration::from_millis(1000)).await;
+    if (args().find(|w| w == "j").is_some()) {
+        println!("Job");
+        create_job(&q).await;
+    }
+    if (args().find(|w| w == "w").is_some()) {
+        println!("Work");
+        let mut worker = q.worker();
+        loop {
+            let job = worker.pop().await;
+            println!("Hooray: {:?}", job.data());
+        }
+    }
 
     Ok(())
 }
