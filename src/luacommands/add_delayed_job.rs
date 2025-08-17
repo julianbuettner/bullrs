@@ -34,9 +34,7 @@ where
             .map(|s| s.as_str())
             .unwrap_or(&"");
         let parent_key: Option<String> = None;
-        let wait_children_key = "";
         let parent_dependencies_key = "";
-        let parent: Option<String> = None;
         let repeat_job_key = "";
         let deduplication_key = "";
         let job_name = self.job_name;

@@ -5,14 +5,21 @@ use std::time::Duration;
 pub mod duration_millis_option {
     use std::time::Duration;
 
-    use serde::{self, Deserialize, Deserializer, Serializer};
+    use serde::{self, Deserialize, Deserializer, Serializer, ser};
 
     pub fn serialize<S>(duration: &Option<Duration>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
         match duration {
-            Some(d) => serializer.serialize_u64(d.as_millis() as u64),
+            Some(d) => {
+                if (d.as_millis() > u64::MAX as u128) {
+                    return Err(<S::Error as ser::Error>::custom(
+                        "Duration was too long, causing u64 millisecond overflow",
+                    ));
+                }
+                serializer.serialize_u64(d.as_millis() as u64)
+            }
             None => serializer.serialize_none(),
         }
     }
@@ -73,7 +80,7 @@ pub mod timestamp_millis_option {
         S: Serializer,
     {
         match timestamp {
-            Some(ts) => serializer.serialize_some(&ts.timestamp_millis()),
+            Some(ts) => serializer.serialize_i64(ts.timestamp_millis()),
             None => serializer.serialize_none(),
         }
     }
