@@ -45,7 +45,6 @@ async fn create_job(q: &Queue<Data, Return>) {
         )
         .await
         .unwrap();
-    println!("Added job with id: {id}");
 }
 
 #[tokio::main]

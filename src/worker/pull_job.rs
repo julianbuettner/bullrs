@@ -1,3 +1,4 @@
+use log::trace;
 use nanoid::nanoid;
 use std::{
     cmp,
@@ -39,17 +40,15 @@ pub async fn pull_job_thread<D, R>(
     let worker_id = nanoid!();
     let mut counter: usize = 0;
     loop {
-        println!("Semaphore");
         let permit = semaphore
             .clone()
             .acquire_owned()
             .await
             .expect("Semaphore crash");
-        println!("...acquired. Getting connection {worker_id}.");
         let start = Instant::now();
         let mut con = pool.get().await.expect("TODO");
-        println!(
-            "...having connection {worker_id} after {:?}. Dequque.",
+        trace!(
+            "Worker thread {worker_id} acquired connection after {:?}",
             start.elapsed()
         );
         let lock_token = format!("{worker_id}-{counter}");
@@ -70,6 +69,10 @@ pub async fn pull_job_thread<D, R>(
             match get_job {
                 MoveToActiveResult::JobData { id, data } => {
                     let lock_refresh_handle = tokio::spawn(lock_refresh());
+                    trace!(
+                        "Worker thread {worker_id} fetched job {id} from queue {}.",
+                        queue_name.as_str()
+                    );
                     job_sender
                         .send(LightJobHandle::new(
                             queue_name.clone(),
@@ -92,14 +95,17 @@ pub async fn pull_job_thread<D, R>(
                 MoveToActiveResult::NothingToDo => Some(Duration::from_secs(10)),
             };
         if let Some(sleep_timer) = sleep_timer {
-            println!("Got sleep: {:?}", sleep_timer);
+            trace!(
+                "Worker thread {worker_id} equeued nothing, sleep for {:?}",
+                sleep_timer
+            );
             // Sleep until known job is ready, but also wake up if new job comes in
             let timeout = sleep(sleep_timer);
             let marker = marker_recv.recv();
             tokio::select! {
-                t = timeout => println!("Classical timeout: {:?}",t),
+                _ = timeout => (),
                 event = marker => {
-                    let (member, score) = event.expect("TODO");
+                    let (_member, _score) = event.expect("TODO");
                 },
             };
         }
