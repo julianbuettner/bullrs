@@ -6,7 +6,7 @@ use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{
     job_options::JobOptions,
-    luacommands::{AddStandardJob, InvokeLuaScript},
+    luacommands::{AddDelayedJob, AddStandardJob, InvokeLuaScript},
     worker::{Worker, WorkerArgs},
 };
 
@@ -57,13 +57,22 @@ impl<D, R> Queue<D, R> {
     where
         D: Serialize,
     {
+        let mut con = self.pool.get().await?;
+        if job_options.delay.is_some() {
+            let c = AddDelayedJob {
+                queue: &self.name,
+                job_name,
+                data,
+                job_options,
+            };
+            return Ok(c.call(&mut con).await?);
+        }
         let c = AddStandardJob {
             queue: &self.name,
             job_name,
             data,
             job_options,
         };
-        let mut con = self.pool.get().await?;
         Ok(c.call(&mut con).await?)
     }
 
