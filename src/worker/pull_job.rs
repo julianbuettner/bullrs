@@ -62,7 +62,7 @@ pub async fn pull_job_thread<D, R>(
             "...having connection {worker_id} after {:?}. Dequque.",
             start.elapsed()
         );
-        let token = format!("{worker_id}-{counter}");
+        let lock_token = format!("{worker_id}-{counter}");
         counter += 1;
         let mts = MoveToActive::<D> {
             queue: &queue_name,
@@ -72,7 +72,7 @@ pub async fn pull_job_thread<D, R>(
                 duration: Duration::from_millis(0),
             },
             lock_duration: Duration::from_secs(30),
-            token: &token,
+            token: &lock_token,
             phantom: PhantomData, // TODO without
         };
         println!("Dequeue what I can get");
@@ -89,6 +89,8 @@ pub async fn pull_job_thread<D, R>(
                             permit,
                             data.data,
                             lock_refresh_handle,
+                            lock_token.clone(),
+                            worker_id.clone(),
                         ))
                         .await
                         .expect("TODO");

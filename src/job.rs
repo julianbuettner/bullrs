@@ -5,14 +5,19 @@ use chrono::{DateTime, Utc};
 use deadpool_redis::Pool;
 use log::{debug, trace, warn};
 use redis::{AsyncCommands as _, RedisResult};
-use serde::de::DeserializeOwned;
+use serde::{Serialize, de::DeserializeOwned};
 use tokio::{
     sync::{OwnedSemaphorePermit, Semaphore, mpsc::Sender},
     task::{self, JoinHandle},
     time::sleep,
 };
 
-use crate::{Progress, job_options::JobOptions, queue::QueueName};
+use crate::{
+    Progress,
+    job_options::JobOptions,
+    luacommands::{InvokeLuaScript, KeepJobsConfig, MoveToFinished, MoveToFinishedOptions},
+    queue::QueueName,
+};
 
 const JOB_POLL_ERROR_COOLDOWN: Duration = Duration::from_millis(100);
 
@@ -22,9 +27,11 @@ pub struct LightJobHandle<D, R> {
     id: String,
     semaphore_permit: OwnedSemaphorePermit,
     data: D,
-    phantom: PhantomData<R>, // Data, Result
+    phantom: PhantomData<R>, // Result
     lock_refresh_handle: JoinHandle<()>,
     has_been_finished: bool,
+    lock_token: String,
+    worker_name: String,
 }
 
 impl<D, R> LightJobHandle<D, R> {
@@ -35,6 +42,8 @@ impl<D, R> LightJobHandle<D, R> {
         semaphore_permit: OwnedSemaphorePermit,
         data: D,
         lock_refresh_handle: JoinHandle<()>,
+        lock_token: String,
+        worker_name: String,
     ) -> Self {
         Self {
             queue_name,
@@ -44,6 +53,8 @@ impl<D, R> LightJobHandle<D, R> {
             data,
             lock_refresh_handle,
             phantom: PhantomData,
+            lock_token,
+            worker_name,
             has_been_finished: false,
         }
     }
@@ -51,13 +62,49 @@ impl<D, R> LightJobHandle<D, R> {
     pub fn data(&self) -> &D {
         &self.data
     }
-    pub async fn done(mut self, value: R) {
+    async fn finished<'a>(mut self, result: Result<&'a R, &'a str>)
+    where
+        R: Serialize,
+    {
         self.has_been_finished = true;
-        let con = self.pool.get().await.expect("TODO");
+        self.lock_refresh_handle.abort();
+        let move_to_finished = MoveToFinished {
+            queue: &self.queue_name,
+            job_id: &self.id,
+            timestamp: Utc::now(),
+            result,
+            options: MoveToFinishedOptions {
+                lock_token: self.lock_token.clone(),
+                keep_jobs: KeepJobsConfig {
+                    count: -1,
+                    age: None,
+                },
+                lock_duration: Duration::from_secs(30),
+                attempts: 99,
+                max_metrics_size: None,
+                fail_parent_on_fail: None,
+                continue_parent_on_failure: None,
+                ignore_dependency_on_fail: None,
+                remove_dependency_on_fail: None,
+                worker_name: self.worker_name.clone(),
+                limiter: None,
+            },
+            job_fields: Default::default(),
+        };
+        let mut con = self.pool.get().await.expect("TODO");
+        move_to_finished.call(&mut con).await.expect("TODO");
     }
-    pub async fn failed(mut self, error: &str) {
-        self.has_been_finished = true;
-        let con = self.pool.get().await.expect("TODO");
+    pub async fn done(mut self, value: &R)
+    where
+        R: Serialize,
+    {
+        self.finished(Ok(value)).await
+    }
+    pub async fn failed(mut self, error: &str)
+    where
+        R: Serialize,
+    {
+        self.finished(Err(error)).await
     }
 }
 
@@ -65,11 +112,10 @@ impl<D, R> Drop for LightJobHandle<D, R> {
     fn drop(&mut self) {
         if !self.has_been_finished {
             warn!(
-                "Job \"{}\" of queue \"{}\" has been dropped without done() or failed() being called. \
-                It will be marked as failed (TODO: currently noop).",
+                "Job \"{}\" of queue \"{}\" has been dropped without done() or failed() being called.",
                 self.id,
                 self.queue_name.as_str()
-            )
+            );
         }
     }
 }
@@ -219,88 +265,88 @@ where
     D: DeserializeOwned,
     R: DeserializeOwned,
 {
-    pub async fn into_job_handle(self) -> Result<JobHandle<D, R>> {
-        let mut con = self.pool.get().await?;
-
-        let mut intermediate: Intermediate<D, R> = Default::default();
-
-        let res: Vec<String> = con.hgetall(self.queue_name.job(&self.id)).await?;
-        if res.len() % 2 != 0 {
-            bail!("Redis Key Value result must always result in a even length");
-        }
-        let mut res_it = res.into_iter();
-        while let (Some(key), Some(value)) = (res_it.next(), res_it.next()) {
-            match key.as_str() {
-                "atm" => intermediate.atm = serde_json::from_str(&value)?,
-                "data" => intermediate.data = serde_json::from_str(&value)?,
-                "name" => intermediate.name = serde_json::from_str(&value)?,
-                "delay" => intermediate.delay = serde_json::from_str(&value)?,
-                "failedReason" => intermediate.failed_reason = Some(value),
-                "finishedOn" => {
-                    intermediate.finished_on = {
-                        let t: i64 = serde_json::from_str(&value)?;
-                        DateTime::from_timestamp_millis(t)
-                    }
-                }
-                "opts" => intermediate.opts = serde_json::from_str(&value)?,
-                "priority" => intermediate.priority = serde_json::from_str(&value)?,
-                "progress" => intermediate.progress = serde_json::from_str(&value)?,
-                "result" => intermediate.result = serde_json::from_str(&value)?,
-                "stc" => intermediate.stc = serde_json::from_str(&value)?,
-                "timestamp" => {
-                    intermediate.timestamp = {
-                        let t: i64 = serde_json::from_str(&value)?;
-                        DateTime::from_timestamp_millis(t)
-                    }
-                }
-                "stacktrace" => intermediate.stack_trace = Some(value),
-                unknown => debug!("Unknown key in Job {}: {}", &self.id, unknown),
-            }
-        }
-        if intermediate.data.is_none() {
-            bail!(
-                "Job {} in queue {} did not contain job payload.",
-                self.id,
-                self.queue_name.as_str()
-            );
-        }
-        if intermediate.timestamp.is_none() {
-            bail!(
-                "Job {} in queue {} did not contain timestamp.",
-                self.id,
-                self.queue_name.as_str()
-            );
-        }
-        if intermediate.name.is_none() {
-            bail!(
-                "Job {} in queue {} did not contain name.",
-                self.id,
-                self.queue_name.as_str()
-            );
-        }
-        let job_state = JobState {
-            atm: intermediate.atm,
-            data: intermediate.data.unwrap(),
-            delay: intermediate.delay,
-            failed_reason: intermediate.failed_reason,
-            finished_on: intermediate.finished_on,
-            name: intermediate.name.unwrap(),
-            opts: intermediate.opts,
-            priority: intermediate.priority,
-            progress: intermediate.progress,
-            result: intermediate.result,
-            stc: intermediate.stc,
-            timestamp: intermediate.timestamp.unwrap(),
-            stack_trace: intermediate.stack_trace,
-        };
-        Ok(JobHandle {
-            queue_name: self.queue_name,
-            pool: self.pool,
-            id: self.id,
-            job_state,
-            semaphore: self.semaphore_permit,
-            lock_refresh_handle: todo!(),
-            phantom: PhantomData,
-        })
-    }
+    // pub async fn into_job_handle(self) -> Result<JobHandle<D, R>> {
+    //     let mut con = self.pool.get().await?;
+    //
+    //     let mut intermediate: Intermediate<D, R> = Default::default();
+    //
+    //     let res: Vec<String> = con.hgetall(self.queue_name.job(&self.id)).await?;
+    //     if res.len() % 2 != 0 {
+    //         bail!("Redis Key Value result must always result in a even length");
+    //     }
+    //     let mut res_it = res.into_iter();
+    //     while let (Some(key), Some(value)) = (res_it.next(), res_it.next()) {
+    //         match key.as_str() {
+    //             "atm" => intermediate.atm = serde_json::from_str(&value)?,
+    //             "data" => intermediate.data = serde_json::from_str(&value)?,
+    //             "name" => intermediate.name = serde_json::from_str(&value)?,
+    //             "delay" => intermediate.delay = serde_json::from_str(&value)?,
+    //             "failedReason" => intermediate.failed_reason = Some(value),
+    //             "finishedOn" => {
+    //                 intermediate.finished_on = {
+    //                     let t: i64 = serde_json::from_str(&value)?;
+    //                     DateTime::from_timestamp_millis(t)
+    //                 }
+    //             }
+    //             "opts" => intermediate.opts = serde_json::from_str(&value)?,
+    //             "priority" => intermediate.priority = serde_json::from_str(&value)?,
+    //             "progress" => intermediate.progress = serde_json::from_str(&value)?,
+    //             "result" => intermediate.result = serde_json::from_str(&value)?,
+    //             "stc" => intermediate.stc = serde_json::from_str(&value)?,
+    //             "timestamp" => {
+    //                 intermediate.timestamp = {
+    //                     let t: i64 = serde_json::from_str(&value)?;
+    //                     DateTime::from_timestamp_millis(t)
+    //                 }
+    //             }
+    //             "stacktrace" => intermediate.stack_trace = Some(value),
+    //             unknown => debug!("Unknown key in Job {}: {}", &self.id, unknown),
+    //         }
+    //     }
+    //     if intermediate.data.is_none() {
+    //         bail!(
+    //             "Job {} in queue {} did not contain job payload.",
+    //             self.id,
+    //             self.queue_name.as_str()
+    //         );
+    //     }
+    //     if intermediate.timestamp.is_none() {
+    //         bail!(
+    //             "Job {} in queue {} did not contain timestamp.",
+    //             self.id,
+    //             self.queue_name.as_str()
+    //         );
+    //     }
+    //     if intermediate.name.is_none() {
+    //         bail!(
+    //             "Job {} in queue {} did not contain name.",
+    //             self.id,
+    //             self.queue_name.as_str()
+    //         );
+    //     }
+    //     let job_state = JobState {
+    //         atm: intermediate.atm,
+    //         data: intermediate.data.unwrap(),
+    //         delay: intermediate.delay,
+    //         failed_reason: intermediate.failed_reason,
+    //         finished_on: intermediate.finished_on,
+    //         name: intermediate.name.unwrap(),
+    //         opts: intermediate.opts,
+    //         priority: intermediate.priority,
+    //         progress: intermediate.progress,
+    //         result: intermediate.result,
+    //         stc: intermediate.stc,
+    //         timestamp: intermediate.timestamp.unwrap(),
+    //         stack_trace: intermediate.stack_trace,
+    //     };
+    //     Ok(JobHandle {
+    //         queue_name: self.queue_name,
+    //         pool: self.pool,
+    //         id: self.id,
+    //         job_state,
+    //         semaphore: self.semaphore_permit,
+    //         lock_refresh_handle: todo!(),
+    //         phantom: PhantomData,
+    //     })
+    // }
 }

@@ -67,7 +67,7 @@ async fn main() -> anyhow::Result<()> {
         println!("Work");
         let mut worker = q.worker();
         loop {
-            let job = worker.pop().await;
+            let job = worker.pop().await.expect("Worker not stopped");
             println!("Hooray: {:?}", job.data());
         }
     }

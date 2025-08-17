@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     env,
     fs::{self, File, OpenOptions, create_dir_all},
     io::{Write, read_to_string},
@@ -9,7 +9,7 @@ use std::{
 fn get_resolved_lua_content(path: &PathBuf, resolved_accu: &mut HashSet<PathBuf>) -> String {
     let file: File = OpenOptions::new()
         .read(true)
-        .open(&path)
+        .open(path)
         .expect("provided path of lua file should exist");
     let content = read_to_string(file).unwrap();
 
@@ -17,9 +17,7 @@ fn get_resolved_lua_content(path: &PathBuf, resolved_accu: &mut HashSet<PathBuf>
     for line in content.lines() {
         if line.trim().starts_with("--- @include ") {
             let filename: &str = line
-                .split_whitespace()
-                .skip(2)
-                .next()
+                .split_whitespace().nth(2)
                 .unwrap()
                 .trim_matches('"');
             let filename = format!("{filename}.lua");
@@ -69,7 +67,7 @@ fn main() {
         let out_path = output_dir.join(filename);
         println!(
             "Write result ({}B) to {}.",
-            content.as_bytes().len(),
+            content.len(),
             out_path.display()
         );
         let mut outputfile = OpenOptions::new()
