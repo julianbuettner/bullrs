@@ -30,7 +30,6 @@ impl<'a> InvokeLuaScript for MoveStalledJobsToWait<'a> {
             .key(self.queue.stalled())
             .key(self.queue.wait())
             .key(self.queue.active())
-            .key(self.queue.failed())
             .key(self.queue.stalled_check())
             .key(self.queue.meta())
             .key(self.queue.paused())

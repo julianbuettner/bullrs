@@ -50,6 +50,7 @@ async fn create_job(q: &Queue<Data, Return>) {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    env_logger::init();
     let cfg = Config::from_url("redis://127.0.0.1/");
     let pool = cfg.create_pool(Some(Runtime::Tokio1)).unwrap();
     pool.resize(32);
@@ -66,6 +67,7 @@ async fn main() -> anyhow::Result<()> {
         loop {
             let job = worker.pop().await.expect("Worker not stopped");
             println!("Hooray: {:?}", job.data());
+            job.done(&Return(999)).await;
         }
     }
 

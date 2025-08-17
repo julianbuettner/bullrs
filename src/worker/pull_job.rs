@@ -21,9 +21,7 @@ use tokio::{
 
 use crate::{
     job::LightJobHandle,
-    luacommands::{
-        InvokeLuaScript as _, MoveToActive, MoveToActiveResult, RateLimiter,
-    },
+    luacommands::{InvokeLuaScript as _, MoveToActive, MoveToActiveResult, RateLimiter},
     queue::QueueName,
 };
 
@@ -67,7 +65,6 @@ pub async fn pull_job_thread<D, R>(
             token: &lock_token,
             phantom: PhantomData, // TODO without
         };
-        println!("Dequeue what I can get");
         let get_job = mts.call(&mut con).await.unwrap();
         let sleep_timer =
             match get_job {
@@ -103,7 +100,6 @@ pub async fn pull_job_thread<D, R>(
                 t = timeout => println!("Classical timeout: {:?}",t),
                 event = marker => {
                     let (member, score) = event.expect("TODO");
-                    println!("EVENT: {}, {}", member, score);
                 },
             };
         }

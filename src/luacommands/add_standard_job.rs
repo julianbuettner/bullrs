@@ -55,9 +55,6 @@ where
             repeat_job_key,
             deduplication_key,
         );
-        dbg!(&arguments_tuple);
-        dbg!(&self.job_options);
-        let pl = serde_json::to_string(&self.job_options);
         Ok(ADD_STANDARD_JOB
             .key(self.queue.wait())
             .key(self.queue.paused())

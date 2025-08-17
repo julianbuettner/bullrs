@@ -48,7 +48,6 @@ where
 {
     fn from_redis_value(item: &redis::Value) -> redis::RedisResult<Self> {
         let hm: HashMap<String, String> = from_redis_value(item)?;
-        dbg!(&hm);
         let ts: Option<i64> = hm
             .get("timestamp")
             .map(|v| serde_json::from_str(v))

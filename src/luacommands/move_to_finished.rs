@@ -47,6 +47,7 @@ pub struct MoveToFinishedOptions {
     #[serde(rename = "token")]
     pub lock_token: String,
     /// How many jobs to keep after processing
+    #[serde(rename = "keepJobs")]
     pub keep_jobs: KeepJobsConfig,
     /// Lock duration in milliseconds
     #[serde(with = "crate::milliserde::duration_millis", rename = "lockDuration")]
@@ -54,6 +55,7 @@ pub struct MoveToFinishedOptions {
     /// Maximum attempts for the job
     pub attempts: usize,
     /// Maximum metrics size
+    #[serde(rename = "maxMatricsSize")]
     pub max_metrics_size: Option<usize>,
     /// Whether to fail parent on failure
     #[serde(rename = "fpof")]
@@ -114,7 +116,7 @@ where
 
     async fn call(self, con: &mut impl ConnectionLike) -> RedisResult<Self::Return> {
         let job_fields = self.job_fields.unwrap_or_default();
-        let job_fields_bytes = rmp_serde::to_vec(&job_fields).unwrap();
+        let job_fields_bytes = rmp_serde::to_vec_named(&job_fields).unwrap();
         let target = if self.result.is_ok() {
             "completed"
         } else {
@@ -157,7 +159,8 @@ where
             .arg(rmp_serde::to_vec_named(&self.options).unwrap())
             .arg(job_fields_bytes)
             .invoke_async(con)
-            .await?;
+            .await
+            .expect("Script failure");
 
         match result {
             Value::Int(code) => match code {

@@ -159,7 +159,6 @@ impl FromRedisValue for JobDataOrExitCode {
             redis::Value::Int(i) => Ok(Self::ExitCode(*i)),
             redis::Value::Array(m) => {
                 let mut res = HashMap::new();
-                dbg!(m);
                 for a in m.windows(2).step_by(2).into_iter() {
                     assert_eq!(a.len(), 2);
                     let (key, value) = (&a[0], &a[1]);

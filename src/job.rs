@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, time::Duration};
+use std::{collections::HashMap, marker::PhantomData, time::Duration};
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -6,10 +6,7 @@ use deadpool_redis::Pool;
 use log::warn;
 use redis::AsyncCommands as _;
 use serde::{Serialize, de::DeserializeOwned};
-use tokio::{
-    sync::OwnedSemaphorePermit,
-    task::JoinHandle,
-};
+use tokio::{sync::OwnedSemaphorePermit, task::JoinHandle};
 
 use crate::{
     Progress,
@@ -88,7 +85,7 @@ impl<D, R> LightJobHandle<D, R> {
                 worker_name: self.worker_name.clone(),
                 limiter: None,
             },
-            job_fields: Default::default(),
+            job_fields: None,
         };
         let mut con = self.pool.get().await.expect("TODO");
         move_to_finished.call(&mut con).await.expect("TODO");
@@ -110,6 +107,7 @@ impl<D, R> LightJobHandle<D, R> {
 impl<D, R> Drop for LightJobHandle<D, R> {
     fn drop(&mut self) {
         if !self.has_been_finished {
+            self.lock_refresh_handle.abort();
             warn!(
                 "Job \"{}\" of queue \"{}\" has been dropped without done() or failed() being called.",
                 self.id,
