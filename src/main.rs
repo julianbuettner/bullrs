@@ -6,6 +6,7 @@ use std::{
     thread::spawn,
     time::{Duration, Instant},
 };
+use tokio::{io::DuplexStream, time::sleep};
 
 use serde::{Deserialize, Serialize};
 
@@ -48,7 +49,7 @@ async fn create_job(q: &Queue<Data, Return>, name: &str) {
             },
             &JobOptions::builder()
                 .attempts(99)
-                .delay(Duration::from_secs(3))
+                .delay(Duration::from_secs(5))
                 .build(),
         )
         .await
@@ -64,7 +65,7 @@ async fn main() -> anyhow::Result<()> {
 
     let q: Queue<Data, Return> = Queue::new(pool, "pinkpony");
 
-    let c = 1_000;
+    let c = 10;
 
     if args().find(|w| w == "j").is_some() {
         info!("Enqueue {c} jobs");
@@ -77,8 +78,8 @@ async fn main() -> anyhow::Result<()> {
     if args().find(|w| w == "w").is_some() {
         info!("Work {c} jobs");
         let mut worker = q.worker(WorkerArgs {
-            parallel_jobs: 128,
-            parallel_connections: 32,
+            parallel_jobs: 32,
+            parallel_connections: 8,
             stalled_after: Duration::from_secs(5),
             ..Default::default()
         });
@@ -90,6 +91,8 @@ async fn main() -> anyhow::Result<()> {
         }
         info!("Done after {:?}", start.elapsed());
     }
+    // Let all jobs set their done values
+    sleep(Duration::from_millis(500)).await;
 
     Ok(())
 }

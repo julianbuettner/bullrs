@@ -21,6 +21,7 @@ pub struct LightJobHandle<D, R> {
     queue_name: QueueName,
     pool: Pool,
     id: String,
+    name: String,
     semaphore_permit: OwnedSemaphorePermit,
     data: D,
     phantom: PhantomData<R>, // Result
@@ -35,6 +36,7 @@ impl<D, R> LightJobHandle<D, R> {
         queue_name: QueueName,
         pool: Pool,
         id: String,
+        name: String,
         semaphore_permit: OwnedSemaphorePermit,
         data: D,
         lock_refresh_handle: JoinHandle<()>,
@@ -45,6 +47,7 @@ impl<D, R> LightJobHandle<D, R> {
             queue_name,
             pool,
             id,
+            name,
             semaphore_permit,
             data,
             lock_refresh_handle,
@@ -57,6 +60,9 @@ impl<D, R> LightJobHandle<D, R> {
 
     pub fn data(&self) -> &D {
         &self.data
+    }
+    pub fn id(&self) -> &str {
+        &self.id
     }
     async fn finished<'a>(mut self, result: Result<&'a R, &'a str>)
     where

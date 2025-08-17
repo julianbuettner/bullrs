@@ -78,6 +78,7 @@ pub async fn pull_job_thread<D, R>(
                             queue_name.clone(),
                             pool.clone(),
                             id,
+                            data.name,
                             permit,
                             data.data,
                             lock_refresh_handle,
@@ -128,8 +129,7 @@ async fn pull_marker(
         let (_key, job_id, timestamp) = res.unwrap();
         let ts: DateTime<Utc> = DateTime::from_timestamp_millis(timestamp).expect("TODO");
         if let Err(e) = sender.send((job_id, ts)).await {
-            warn!("Worker dropped ungraceful. Move job back from active to waiting.");
-            // TODO
+            // Pull thread terminated and can't receive updates
             return;
         }
     }

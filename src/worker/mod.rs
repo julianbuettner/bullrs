@@ -1,8 +1,6 @@
+use bon::Builder;
 use nanoid::nanoid;
-use std::{
-    sync::Arc,
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
 use deadpool_redis::Pool;
 use serde::de::DeserializeOwned;
@@ -15,9 +13,7 @@ use tokio::{
 };
 
 use crate::{
-    job::LightJobHandle,
-    queue::QueueName,
-    worker::stalled_to_wait_handle::stalled_to_wait,
+    job::LightJobHandle, queue::QueueName, worker::stalled_to_wait_handle::stalled_to_wait,
 };
 
 mod pull_job;
