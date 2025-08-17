@@ -1,10 +1,15 @@
 use deadpool_redis::{Config, Runtime};
+use log::info;
 use queue::Queue;
-use std::env::args;
+use std::{
+    env::args,
+    thread::spawn,
+    time::{Duration, Instant},
+};
 
 use serde::{Deserialize, Serialize};
 
-use crate::job_options::JobOptions;
+use crate::{job_options::JobOptions, worker::WorkerArgs};
 
 mod job;
 mod job_lock;
@@ -34,14 +39,17 @@ struct Return(pub i64);
 #[derive(Deserialize, Serialize)]
 struct Progress(pub f32);
 
-async fn create_job(q: &Queue<Data, Return>) {
+async fn create_job(q: &Queue<Data, Return>, name: &str) {
     let id = q
         .add(
-            "Somejob",
+            name,
             &Data {
                 vehicle: "Boat".into(),
             },
-            &JobOptions::default(),
+            &JobOptions::builder()
+                .attempts(99)
+                .delay(Duration::from_secs(3))
+                .build(),
         )
         .await
         .unwrap();
@@ -52,22 +60,35 @@ async fn main() -> anyhow::Result<()> {
     env_logger::init();
     let cfg = Config::from_url("redis://127.0.0.1/");
     let pool = cfg.create_pool(Some(Runtime::Tokio1)).unwrap();
-    pool.resize(32);
+    pool.resize(128);
 
     let q: Queue<Data, Return> = Queue::new(pool, "pinkpony");
 
+    let c = 1_000;
+
     if args().find(|w| w == "j").is_some() {
-        println!("Job");
-        create_job(&q).await;
+        info!("Enqueue {c} jobs");
+        let start = Instant::now();
+        for i in 0..c {
+            create_job(&q, format!("Job {i}").as_str()).await;
+        }
+        info!("Elapsed: {:?}", start.elapsed());
     }
     if args().find(|w| w == "w").is_some() {
-        println!("Work");
-        let mut worker = q.worker();
-        loop {
+        info!("Work {c} jobs");
+        let mut worker = q.worker(WorkerArgs {
+            parallel_jobs: 128,
+            parallel_connections: 32,
+            stalled_after: Duration::from_secs(5),
+            ..Default::default()
+        });
+        info!("Do the worky work");
+        let start = Instant::now();
+        for _ in 0..c {
             let job = worker.pop().await.expect("Worker not stopped");
-            println!("Hooray: {:?}", job.data());
-            job.done(&Return(999)).await;
+            tokio::spawn(job.done(&Return(999)));
         }
+        info!("Done after {:?}", start.elapsed());
     }
 
     Ok(())

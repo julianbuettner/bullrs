@@ -1,8 +1,4 @@
-use std::{
-    fmt::Debug,
-    marker::PhantomData,
-    sync::Arc,
-};
+use std::{fmt::Debug, marker::PhantomData, sync::Arc};
 
 use deadpool_redis::Pool;
 use redis::AsyncCommands;
@@ -32,12 +28,15 @@ impl<D, R> Queue<D, R> {
         }
     }
 
-    pub fn worker(&self) -> Worker<D, R>
+    pub fn worker(&self, worker_args: WorkerArgs) -> Worker<D, R>
     where
         R: Send + 'static,
         D: Send + DeserializeOwned + Debug + 'static,
     {
-        Worker::new(self.pool.clone(), self.name.clone(), WorkerArgs::default())
+        if self.pool.status().max_size < worker_args.parallel_connections * 2 {
+            self.pool.resize(worker_args.parallel_connections * 2);
+        }
+        Worker::new(self.pool.clone(), self.name.clone(), worker_args)
     }
 
     pub async fn get_global_concurrency(&mut self) -> anyhow::Result<Option<usize>> {

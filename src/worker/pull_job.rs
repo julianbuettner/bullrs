@@ -1,4 +1,4 @@
-use log::trace;
+use log::{trace, warn};
 use nanoid::nanoid;
 use std::{
     cmp,
@@ -127,7 +127,11 @@ async fn pull_marker(
         }
         let (_key, job_id, timestamp) = res.unwrap();
         let ts: DateTime<Utc> = DateTime::from_timestamp_millis(timestamp).expect("TODO");
-        sender.send((job_id, ts)).await.expect("TODO");
+        if let Err(e) = sender.send((job_id, ts)).await {
+            warn!("Worker dropped ungraceful. Move job back from active to waiting.");
+            // TODO
+            return;
+        }
     }
 }
 async fn lock_refresh() {}

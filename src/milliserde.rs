@@ -12,7 +12,7 @@ pub mod duration_millis_option {
         S: Serializer,
     {
         match duration {
-            Some(d) => serializer.serialize_some(&d.as_millis()),
+            Some(d) => serializer.serialize_u64(d.as_millis() as u64),
             None => serializer.serialize_none(),
         }
     }

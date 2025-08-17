@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use bon::Builder;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -44,7 +45,7 @@ pub struct ParentOptions {
     queue: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Serialize)]
 pub enum KeepJobs {
     /// How many jobs to keep after processing
     Count(usize),
@@ -53,12 +54,13 @@ pub enum KeepJobs {
     /// If providing both values,
     /// jobs will be cleared for both configurations.
     Config {
+        #[serde(with = "crate::milliserde::duration_millis_option")]
         age: Option<Duration>,
         count: Option<usize>,
     },
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Serialize, Builder)]
 pub struct JobOptions {
     /// Maximum tries to get the job done.
     pub attempts: Option<usize>,
@@ -81,9 +83,6 @@ pub struct JobOptions {
     pub lifo: Option<bool>,
     /// Configure parent job relation
     pub parent: Option<ParentOptions>,
-    // Internal value used by repeatable jobs
-    #[serde(with = "crate::milliserde::duration_millis_option")]
-    prev_millis: Option<Duration>,
     /// No priority means highest priority. Higher numbers
     /// mean lower priority. Using priority comes at a cost though.
     /// A sorted set (compare to datastructure heap) has to be maintained.
@@ -128,7 +127,6 @@ impl Default for JobOptions {
             keep_logs: None,
             lifo: None,
             parent: None,
-            prev_millis: None,
             priority: None,
             remove_on_complete: None,
             remove_on_fail: None,
