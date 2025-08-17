@@ -16,10 +16,7 @@ fn get_resolved_lua_content(path: &PathBuf, resolved_accu: &mut HashSet<PathBuf>
     let mut new_content = String::with_capacity(content.len());
     for line in content.lines() {
         if line.trim().starts_with("--- @include ") {
-            let filename: &str = line
-                .split_whitespace().nth(2)
-                .unwrap()
-                .trim_matches('"');
+            let filename: &str = line.split_whitespace().nth(2).unwrap().trim_matches('"');
             let filename = format!("{filename}.lua");
             let sub_path = path.parent().unwrap().join(&filename);
             if resolved_accu.contains(&sub_path) {

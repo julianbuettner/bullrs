@@ -12,10 +12,7 @@ pub enum RedisHashMapError {
 
 pub trait RedisHashMapExt {
     fn extract<T: DeserializeOwned>(&self, key: &str) -> Result<T, RedisHashMapError>;
-    fn extract_opt<T: DeserializeOwned>(
-        &self,
-        key: &str,
-    ) -> Result<Option<T>, RedisHashMapError>;
+    fn extract_opt<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>, RedisHashMapError>;
 }
 
 impl RedisHashMapExt for HashMap<String, String> {
@@ -25,10 +22,7 @@ impl RedisHashMapExt for HashMap<String, String> {
             Some(v) => Ok(serde_json::from_str(v)?),
         }
     }
-    fn extract_opt<T: DeserializeOwned>(
-        &self,
-        key: &str,
-    ) -> Result<Option<T>, RedisHashMapError> {
+    fn extract_opt<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>, RedisHashMapError> {
         match self.get(key) {
             None => Ok(None),
             Some(v) => Ok(serde_json::from_str(v)?),

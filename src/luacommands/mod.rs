@@ -9,7 +9,10 @@ mod move_to_finished;
 pub use add_standard_job::AddStandardJob;
 pub use move_stalled_jobs_to_wait::MoveStalledJobsToWait;
 pub use move_to_active::{MoveToActive, MoveToActiveResult, MoveToActiveReturn, RateLimiter};
-pub use move_to_finished::{MoveToFinished, MoveToFinishedResult, MoveToFinishedTarget, MoveToFinishedOptions, KeepJobsConfig, RateLimiter as MoveToFinishedRateLimiter};
+pub use move_to_finished::{
+    KeepJobsConfig, MoveToFinished, MoveToFinishedOptions, MoveToFinishedResult,
+    MoveToFinishedTarget, RateLimiter as MoveToFinishedRateLimiter,
+};
 
 macro_rules! load_script {
     ($filename:expr) => {
