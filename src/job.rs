@@ -1,4 +1,8 @@
-use std::{collections::HashMap, marker::PhantomData, time::Duration};
+use std::{
+    collections::HashMap,
+    marker::PhantomData,
+    time::{Duration, SystemTime},
+};
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -117,6 +121,13 @@ impl<D, R> LightJobHandle<D, R> {
         };
         let mut con = self.pool.get().await.expect("TODO");
         add_log.call(&mut con).await.expect("TODO");
+    }
+    pub async fn log_ts(&self, log_line: &str) {
+        let new_log = format!(
+            "{} {log_line}",
+            humantime::format_rfc3339_millis(SystemTime::now())
+        );
+        self.log(&new_log).await
     }
 }
 

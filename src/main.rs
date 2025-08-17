@@ -88,7 +88,7 @@ async fn main() -> anyhow::Result<()> {
         for _ in 0..c {
             let job = worker.pop().await.expect("Worker not stopped");
             tokio::spawn(async {
-                job.log("Huiiii").await;
+                job.log_ts("Huiiii").await;
                 job.done(&Return(999)).await
             });
         }

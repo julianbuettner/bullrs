@@ -9,6 +9,7 @@ bon = "3.7.0"
 chrono = { version = "0.4.41", features = ["serde"] }
 deadpool-redis = { version = "0.21.1", features = ["rt_tokio_1"] }
 env_logger = "0.11.8"  # remove once main.rs is removed
+humantime = "2.2.0"
 lazy_static = "1.5.0"
 log = "0.4.27"
 nanoid = "0.4.0"
