@@ -55,8 +55,8 @@ pub struct MoveToFinishedOptions {
     /// Maximum attempts for the job
     pub attempts: usize,
     /// Maximum metrics size
-    #[serde(rename = "maxMatricsSize")]
-    pub max_metrics_size: Option<usize>,
+    #[serde(rename = "maxMetricsSize")]
+    pub max_metrics_size: usize,
     /// Whether to fail parent on failure
     #[serde(rename = "fpof")]
     pub fail_parent_on_fail: Option<bool>,
@@ -115,8 +115,12 @@ where
     type Return = MoveToFinishedResult;
 
     async fn call(self, con: &mut impl ConnectionLike) -> RedisResult<Self::Return> {
-        let job_fields = self.job_fields.unwrap_or_default();
-        let job_fields_bytes = rmp_serde::to_vec_named(&job_fields).unwrap();
+        let job_fields_bytes = if let Some(jf) = self.job_fields {
+            rmp_serde::to_vec_named(&jf).unwrap()
+        } else {
+            // Very empty object
+            Vec::new()
+        };
         let target = if self.result.is_ok() {
             "completed"
         } else {

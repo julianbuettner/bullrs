@@ -12,7 +12,7 @@ use crate::{
     Progress,
     job_options::JobOptions,
     luacommands::{InvokeLuaScript, KeepJobsConfig, MoveToFinished, MoveToFinishedOptions},
-    queue::QueueName,
+    queue::{self, QueueName},
 };
 
 const JOB_POLL_ERROR_COOLDOWN: Duration = Duration::from_millis(100);
@@ -77,7 +77,7 @@ impl<D, R> LightJobHandle<D, R> {
                 },
                 lock_duration: Duration::from_secs(30),
                 attempts: 99,
-                max_metrics_size: None,
+                max_metrics_size: 10_000,
                 fail_parent_on_fail: None,
                 continue_parent_on_failure: None,
                 ignore_dependency_on_fail: None,
