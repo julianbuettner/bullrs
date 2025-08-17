@@ -13,7 +13,7 @@ pub mod duration_millis_option {
     {
         match duration {
             Some(d) => {
-                if (d.as_millis() > u64::MAX as u128) {
+                if d.as_millis() > u64::MAX as u128 {
                     return Err(<S::Error as ser::Error>::custom(
                         "Duration was too long, causing u64 millisecond overflow",
                     ));

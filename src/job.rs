@@ -13,9 +13,12 @@ use serde::{Serialize, de::DeserializeOwned};
 use tokio::{sync::OwnedSemaphorePermit, task::JoinHandle};
 
 use crate::{
-    Progress,
+    ProgressPercent,
     job_options::JobOptions,
-    luacommands::{AddLog, InvokeLuaScript, KeepJobsConfig, MoveToFinished, MoveToFinishedOptions},
+    luacommands::{
+        AddLog, InvokeLuaScript, KeepJobsConfig, MoveToFinished, MoveToFinishedOptions,
+        UpdateProgess,
+    },
     queue::{self, QueueName},
 };
 
@@ -129,6 +132,15 @@ impl<D, R> LightJobHandle<D, R> {
         );
         self.log(&new_log).await
     }
+    pub async fn set_progress(&self, progress: ProgressPercent) {
+        let update_progress = UpdateProgess {
+            queue: &self.queue_name,
+            job_id: &self.id,
+            progress,
+        };
+        let mut con = self.pool.get().await.expect("TODO");
+        update_progress.call(&mut con).await.expect("TODO");
+    }
 }
 
 impl<D, R> Drop for LightJobHandle<D, R> {
@@ -154,7 +166,7 @@ struct JobState<D, R> {
     name: String,
     opts: Option<JobOptions>,
     priority: Option<usize>,
-    progress: Option<Progress>,
+    progress: Option<ProgressPercent>,
     result: Option<R>,
     stc: Option<usize>,
     timestamp: DateTime<Utc>,
@@ -257,7 +269,7 @@ struct Intermediate<D, R> {
     name: Option<String>,
     opts: Option<JobOptions>,
     priority: Option<usize>,
-    progress: Option<Progress>,
+    progress: Option<ProgressPercent>,
     result: Option<R>,
     stc: Option<usize>,
     timestamp: Option<DateTime<Utc>>,

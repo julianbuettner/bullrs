@@ -10,7 +10,7 @@ use tokio::{io::DuplexStream, time::sleep};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{job_options::JobOptions, worker::WorkerArgs};
+use crate::{job_options::JobOptions, progress::ProgressPercent, worker::WorkerArgs};
 
 mod job;
 mod job_lock;
@@ -37,9 +37,6 @@ struct Data {
 #[derive(Serialize, Deserialize)]
 struct Return(pub i64);
 
-#[derive(Deserialize, Serialize)]
-struct Progress(pub f32);
-
 async fn create_job(q: &Queue<Data, Return>, name: &str) {
     let id = q
         .add(
@@ -49,7 +46,7 @@ async fn create_job(q: &Queue<Data, Return>, name: &str) {
             },
             &JobOptions::builder()
                 .attempts(99)
-                .delay(Duration::from_secs(5))
+                .delay(Duration::from_secs(2))
                 .build(),
         )
         .await
@@ -89,6 +86,7 @@ async fn main() -> anyhow::Result<()> {
             let job = worker.pop().await.expect("Worker not stopped");
             tokio::spawn(async {
                 job.log_ts("Huiiii").await;
+                job.set_progress(ProgressPercent::try_new(71.9).unwrap()).await;
                 job.done(&Return(999)).await
             });
         }
