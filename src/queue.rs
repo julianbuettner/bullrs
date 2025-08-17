@@ -1,6 +1,7 @@
 use std::{fmt::Debug, marker::PhantomData, sync::Arc};
 
 use deadpool_redis::Pool;
+use nanoid::format;
 use redis::AsyncCommands;
 use serde::{Serialize, de::DeserializeOwned};
 
@@ -118,6 +119,9 @@ impl QueueName {
     }
     pub fn job_lock(&self, job_id: &str) -> String {
         format!("bull:{}:{}:lock", self.0, job_id)
+    }
+    pub fn job_logs(&self, job_id: &str) -> String {
+        format!("bull:{}:{}:logs", self.0, job_id)
     }
     pub fn limiter(&self) -> String {
         format!("bull:{}:limiter", self.0)

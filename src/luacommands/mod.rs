@@ -6,12 +6,14 @@ mod add_standard_job;
 mod move_stalled_jobs_to_wait;
 mod move_to_active;
 mod move_to_finished;
+mod add_log;
 
+pub use add_delayed_job::AddDelayedJob;
+pub use add_log::AddLog;
 pub use add_standard_job::AddStandardJob;
 pub use move_stalled_jobs_to_wait::MoveStalledJobsToWait;
 pub use move_to_active::{MoveToActive, MoveToActiveResult, MoveToActiveReturn, RateLimiter};
 pub use move_to_finished::{KeepJobsConfig, MoveToFinished, MoveToFinishedOptions};
-pub use add_delayed_job::AddDelayedJob;
 
 macro_rules! load_script {
     ($filename:expr) => {

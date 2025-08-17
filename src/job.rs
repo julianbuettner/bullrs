@@ -11,7 +11,7 @@ use tokio::{sync::OwnedSemaphorePermit, task::JoinHandle};
 use crate::{
     Progress,
     job_options::JobOptions,
-    luacommands::{InvokeLuaScript, KeepJobsConfig, MoveToFinished, MoveToFinishedOptions},
+    luacommands::{AddLog, InvokeLuaScript, KeepJobsConfig, MoveToFinished, MoveToFinishedOptions},
     queue::{self, QueueName},
 };
 
@@ -107,6 +107,16 @@ impl<D, R> LightJobHandle<D, R> {
         R: Serialize,
     {
         self.finished(Err(error)).await
+    }
+    pub async fn log(&self, log_line: &str) {
+        let add_log = AddLog {
+            queue: &self.queue_name,
+            job_id: &self.id,
+            log_line,
+            keep_logs: None,
+        };
+        let mut con = self.pool.get().await.expect("TODO");
+        add_log.call(&mut con).await.expect("TODO");
     }
 }
 

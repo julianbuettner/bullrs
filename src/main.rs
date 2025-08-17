@@ -78,16 +78,19 @@ async fn main() -> anyhow::Result<()> {
     if args().find(|w| w == "w").is_some() {
         info!("Work {c} jobs");
         let mut worker = q.worker(WorkerArgs {
-            parallel_jobs: 32,
-            parallel_connections: 8,
-            stalled_after: Duration::from_secs(5),
+            parallel_jobs: 2,
+            parallel_connections: 1,
+            stalled_after: Duration::from_secs(2),
             ..Default::default()
         });
         info!("Do the worky work");
         let start = Instant::now();
         for _ in 0..c {
             let job = worker.pop().await.expect("Worker not stopped");
-            tokio::spawn(job.done(&Return(999)));
+            tokio::spawn(async {
+                job.log("Huiiii").await;
+                job.done(&Return(999)).await
+            });
         }
         info!("Done after {:?}", start.elapsed());
     }
