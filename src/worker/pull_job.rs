@@ -1,4 +1,4 @@
-use log::{trace, warn};
+use log::trace;
 use nanoid::nanoid;
 use std::{
     cmp,

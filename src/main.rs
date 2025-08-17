@@ -3,10 +3,9 @@ use log::info;
 use queue::Queue;
 use std::{
     env::args,
-    thread::spawn,
     time::{Duration, Instant},
 };
-use tokio::{io::DuplexStream, time::sleep};
+use tokio::time::sleep;
 
 use serde::{Deserialize, Serialize};
 
@@ -21,13 +20,6 @@ mod progress;
 mod queue;
 mod redisext;
 mod worker;
-
-#[derive(Debug, Deserialize)]
-struct Payload {
-    a: i32,
-    b: i32,
-    c: i32,
-}
 
 #[derive(Deserialize, Serialize, Debug)]
 struct Data {
@@ -64,7 +56,7 @@ async fn main() -> anyhow::Result<()> {
 
     let c = 10;
 
-    if args().find(|w| w == "j").is_some() {
+    if args().any(|w| &w == "j") {
         info!("Enqueue {c} jobs");
         let start = Instant::now();
         for i in 0..c {
@@ -72,7 +64,7 @@ async fn main() -> anyhow::Result<()> {
         }
         info!("Elapsed: {:?}", start.elapsed());
     }
-    if args().find(|w| w == "w").is_some() {
+    if args().any(|w| &w == "w") {
         info!("Work {c} jobs");
         let mut worker = q.worker(WorkerArgs {
             parallel_jobs: 2,
@@ -86,7 +78,8 @@ async fn main() -> anyhow::Result<()> {
             let job = worker.pop().await.expect("Worker not stopped");
             tokio::spawn(async {
                 job.log_ts("Huiiii").await;
-                job.set_progress(ProgressPercent::try_new(71.9).unwrap()).await;
+                job.set_progress(ProgressPercent::try_new(71.9).unwrap())
+                    .await;
                 job.done(&Return(999)).await
             });
         }

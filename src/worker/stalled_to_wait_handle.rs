@@ -20,8 +20,8 @@ pub async fn stalled_to_wait(
     max_stalled_before_failed: Arc<RwLock<usize>>,
 ) {
     loop {
-        let stalled_after: Duration = stalled_after.read().await.clone();
-        let max_stalled_before_failed: usize = max_stalled_before_failed.read().await.clone();
+        let stalled_after: Duration = *stalled_after.read().await;
+        let max_stalled_before_failed: usize = *max_stalled_before_failed.read().await;
         let con = pool.get().await;
         if let Err(e) = con {
             trace!("Failed to get redis connection from pool for stalled-to-wait: {e:?}");

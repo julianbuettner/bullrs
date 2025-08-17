@@ -21,16 +21,14 @@ where
 {
     type Return = String;
     async fn call(
-        self: Self,
+        self,
         con: &mut impl redis::aio::ConnectionLike,
     ) -> redis::RedisResult<Self::Return> {
         let key_prefix = self.queue.prefix();
         let custom_id: &str = self
             .job_options
-            .job_id
-            .as_ref()
-            .map(|s| s.as_str())
-            .unwrap_or(&"");
+            .job_id.as_deref()
+            .unwrap_or("");
         let parent_key: Option<String> = None;
         let wait_children_key = "";
         let parent_dependencies_key = "";
@@ -41,7 +39,7 @@ where
         let timestamp = self
             .job_options
             .timestamp
-            .unwrap_or_else(|| Utc::now())
+            .unwrap_or_else(Utc::now)
             .timestamp_millis();
         let arguments_tuple = (
             key_prefix,

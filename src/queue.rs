@@ -1,7 +1,6 @@
 use std::{fmt::Debug, marker::PhantomData, sync::Arc};
 
 use deadpool_redis::Pool;
-use nanoid::format;
 use redis::AsyncCommands;
 use serde::{Serialize, de::DeserializeOwned};
 

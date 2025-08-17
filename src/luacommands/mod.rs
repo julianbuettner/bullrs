@@ -13,7 +13,7 @@ pub use add_delayed_job::AddDelayedJob;
 pub use add_log::AddLog;
 pub use add_standard_job::AddStandardJob;
 pub use move_stalled_jobs_to_wait::MoveStalledJobsToWait;
-pub use move_to_active::{MoveToActive, MoveToActiveResult, MoveToActiveReturn, RateLimiter};
+pub use move_to_active::{MoveToActive, MoveToActiveResult, RateLimiter};
 pub use move_to_finished::{KeepJobsConfig, MoveToFinished, MoveToFinishedOptions};
 pub use update_progress::UpdateProgess;
 
@@ -37,5 +37,5 @@ lazy_static! {
 pub trait InvokeLuaScript {
     type Return;
 
-    async fn call(self: Self, con: &mut impl ConnectionLike) -> RedisResult<Self::Return>;
+    async fn call(self, con: &mut impl ConnectionLike) -> RedisResult<Self::Return>;
 }

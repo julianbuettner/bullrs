@@ -16,7 +16,7 @@ impl<'a> InvokeLuaScript for UpdateProgess<'a> {
     type Return = ();
 
     async fn call(
-        self: Self,
+        self,
         con: &mut impl redis::aio::ConnectionLike,
     ) -> redis::RedisResult<Self::Return> {
         let v: i32 = UPDATE_PROGRESS

@@ -61,6 +61,7 @@ pub enum KeepJobs {
 }
 
 #[derive(Debug, Serialize, Builder)]
+#[derive(Default)]
 pub struct JobOptions {
     /// Maximum tries to get the job done.
     pub attempts: Option<usize>,
@@ -116,24 +117,3 @@ pub struct JobOptions {
     pub deduplication_something: Option<String>,
 }
 
-impl Default for JobOptions {
-    fn default() -> Self {
-        Self {
-            attempts: None,
-            backoff: None,
-            continue_parent_on_failure: None,
-            delay: None,
-            job_id: None,
-            keep_logs: None,
-            lifo: None,
-            parent: None,
-            priority: None,
-            remove_on_complete: None,
-            remove_on_fail: None,
-            size_limit: None,
-            stack_trace_limit: None,
-            timestamp: None,
-            deduplication_something: None,
-        }
-    }
-}

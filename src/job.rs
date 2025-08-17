@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     marker::PhantomData,
     time::{Duration, SystemTime},
 };
@@ -19,7 +18,7 @@ use crate::{
         AddLog, InvokeLuaScript, KeepJobsConfig, MoveToFinished, MoveToFinishedOptions,
         UpdateProgess,
     },
-    queue::{self, QueueName},
+    queue::QueueName,
 };
 
 const JOB_POLL_ERROR_COOLDOWN: Duration = Duration::from_millis(100);

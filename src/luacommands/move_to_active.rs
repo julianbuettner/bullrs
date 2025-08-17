@@ -80,7 +80,7 @@ where
     type Return = MoveToActiveResult<ActiveJob<D>>;
 
     async fn call(
-        self: Self,
+        self,
         con: &mut impl redis::aio::ConnectionLike,
     ) -> redis::RedisResult<Self::Return> {
         #[derive(Debug, Serialize)]
@@ -159,7 +159,7 @@ impl FromRedisValue for JobDataOrExitCode {
             redis::Value::Int(i) => Ok(Self::ExitCode(*i)),
             redis::Value::Array(m) => {
                 let mut res = HashMap::new();
-                for a in m.windows(2).step_by(2).into_iter() {
+                for a in m.windows(2).step_by(2) {
                     assert_eq!(a.len(), 2);
                     let (key, value) = (&a[0], &a[1]);
                     if let (redis::Value::BulkString(kk), redis::Value::BulkString(vv)) =
