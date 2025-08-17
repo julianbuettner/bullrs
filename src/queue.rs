@@ -2,12 +2,10 @@ use std::{
     fmt::Debug,
     marker::PhantomData,
     sync::Arc,
-    time::{Duration, SystemTime},
 };
 
-use chrono::{DateTime, Utc};
-use deadpool_redis::{Manager, Pool};
-use redis::{AsyncCommands, Client, RedisResult, aio::MultiplexedConnection};
+use deadpool_redis::Pool;
+use redis::AsyncCommands;
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{

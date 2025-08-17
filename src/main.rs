@@ -1,13 +1,10 @@
-use anyhow::Result;
 use deadpool_redis::{Config, Runtime};
 use queue::Queue;
-use std::{any::Any, collections::HashMap, env::args, marker::PhantomData, time::Duration};
-use tokio::time::sleep;
+use std::env::args;
 
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize};
 
-use crate::{job_options::JobOptions, worker::Worker};
+use crate::job_options::JobOptions;
 
 mod job;
 mod job_lock;
@@ -59,11 +56,11 @@ async fn main() -> anyhow::Result<()> {
 
     let q: Queue<Data, Return> = Queue::new(pool, "pinkpony");
 
-    if (args().find(|w| w == "j").is_some()) {
+    if args().find(|w| w == "j").is_some() {
         println!("Job");
         create_job(&q).await;
     }
-    if (args().find(|w| w == "w").is_some()) {
+    if args().find(|w| w == "w").is_some() {
         println!("Work");
         let mut worker = q.worker();
         loop {

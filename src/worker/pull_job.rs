@@ -1,36 +1,28 @@
-use core::time;
 use nanoid::nanoid;
 use std::{
     cmp,
-    fmt::Display,
     marker::PhantomData,
     sync::Arc,
     time::{Duration, Instant},
 };
 
-use anyhow::Result;
-use chrono::{Date, DateTime, Utc};
+use chrono::{DateTime, Utc};
 use deadpool_redis::Pool;
-use log::trace;
-use redis::{AsyncCommands, RedisResult, aio::MultiplexedConnection};
-use serde::{Serialize, de::DeserializeOwned};
-use serde_json::to_string;
+use redis::AsyncCommands;
+use serde::de::DeserializeOwned;
 use tokio::{
     spawn,
     sync::{
-        OwnedSemaphorePermit, Semaphore, SemaphorePermit,
-        mpsc::{self, Receiver, Sender, channel},
-        watch,
+        Semaphore,
+        mpsc::{self, Sender},
     },
-    task::JoinHandle,
     time::sleep,
 };
 
 use crate::{
     job::LightJobHandle,
     luacommands::{
-        InvokeLuaScript as _, MoveStalledJobsToWait, MoveToActive, MoveToActiveResult,
-        MoveToActiveReturn, RateLimiter,
+        InvokeLuaScript as _, MoveToActive, MoveToActiveResult, RateLimiter,
     },
     queue::QueueName,
 };

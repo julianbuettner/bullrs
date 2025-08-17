@@ -2,8 +2,8 @@ use core::{marker::PhantomData, todo};
 use std::{collections::HashMap, time::Duration};
 
 use chrono::{DateTime, Utc};
-use redis::{FromRedisValue, RedisResult, Value};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use redis::{FromRedisValue, RedisResult};
+use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{
     luacommands::{InvokeLuaScript, MOVE_TO_ACTIVE},

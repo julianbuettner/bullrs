@@ -1,5 +1,5 @@
 use chrono::Utc;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::{
     job_options::JobOptions,

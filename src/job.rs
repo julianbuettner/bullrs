@@ -1,15 +1,14 @@
-use std::{marker::PhantomData, sync::Arc, time::Duration};
+use std::{marker::PhantomData, time::Duration};
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use chrono::{DateTime, Utc};
 use deadpool_redis::Pool;
-use log::{debug, trace, warn};
-use redis::{AsyncCommands as _, RedisResult};
+use log::warn;
+use redis::AsyncCommands as _;
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::{
-    sync::{OwnedSemaphorePermit, Semaphore, mpsc::Sender},
-    task::{self, JoinHandle},
-    time::sleep,
+    sync::OwnedSemaphorePermit,
+    task::JoinHandle,
 };
 
 use crate::{
@@ -94,13 +93,13 @@ impl<D, R> LightJobHandle<D, R> {
         let mut con = self.pool.get().await.expect("TODO");
         move_to_finished.call(&mut con).await.expect("TODO");
     }
-    pub async fn done(mut self, value: &R)
+    pub async fn done(self, value: &R)
     where
         R: Serialize,
     {
         self.finished(Ok(value)).await
     }
-    pub async fn failed(mut self, error: &str)
+    pub async fn failed(self, error: &str)
     where
         R: Serialize,
     {

@@ -1,4 +1,4 @@
-use serde::{Deserialize, de::DeserializeOwned};
+use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use thiserror::Error;
 
