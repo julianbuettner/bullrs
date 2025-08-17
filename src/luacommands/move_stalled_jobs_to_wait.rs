@@ -23,12 +23,9 @@ pub struct MoveStalledJobsToWait<'a> {
 }
 
 impl<'a> InvokeLuaScript for MoveStalledJobsToWait<'a> {
-    type Return = (Vec<String>, Vec<String>);
+    type Return = Vec<String>;
 
-    async fn call<'b>(
-        self,
-        con: &'b mut impl ConnectionLike,
-    ) -> RedisResult<(Vec<String>, Vec<String>)> {
+    async fn call<'b>(self, con: &'b mut impl ConnectionLike) -> RedisResult<Vec<String>> {
         MOVE_STALLED_JOBS_TO_WAIT
             .key(self.queue.stalled())
             .key(self.queue.wait())

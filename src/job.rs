@@ -3,7 +3,7 @@ use std::{marker::PhantomData, sync::Arc, time::Duration};
 use anyhow::{Result, bail};
 use chrono::{DateTime, Utc};
 use deadpool_redis::Pool;
-use log::{debug, trace};
+use log::{debug, trace, warn};
 use redis::{AsyncCommands as _, RedisResult};
 use serde::de::DeserializeOwned;
 use tokio::{
@@ -24,6 +24,7 @@ pub struct LightJobHandle<D, R> {
     data: D,
     phantom: PhantomData<R>, // Data, Result
     lock_refresh_handle: JoinHandle<()>,
+    has_been_finished: bool,
 }
 
 impl<D, R> LightJobHandle<D, R> {
@@ -43,15 +44,33 @@ impl<D, R> LightJobHandle<D, R> {
             data,
             lock_refresh_handle,
             phantom: PhantomData,
+            has_been_finished: false,
         }
     }
 
     pub fn data(&self) -> &D {
         &self.data
     }
-    pub async fn done(self, value: R) {
+    pub async fn done(mut self, value: R) {
+        self.has_been_finished = true;
         let con = self.pool.get().await.expect("TODO");
-        
+    }
+    pub async fn failed(mut self, error: &str) {
+        self.has_been_finished = true;
+        let con = self.pool.get().await.expect("TODO");
+    }
+}
+
+impl<D, R> Drop for LightJobHandle<D, R> {
+    fn drop(&mut self) {
+        if !self.has_been_finished {
+            warn!(
+                "Job \"{}\" of queue \"{}\" has been dropped without done() or failed() being called. \
+                It will be marked as failed (TODO: currently noop).",
+                self.id,
+                self.queue_name.as_str()
+            )
+        }
     }
 }
 
@@ -283,28 +302,5 @@ where
             lock_refresh_handle: todo!(),
             phantom: PhantomData,
         })
-    }
-}
-
-mod duration_millis_option {
-    use chrono::Duration;
-    use serde::{self, Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S>(duration: &Option<Duration>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        match duration {
-            Some(d) => serializer.serialize_some(&d.num_milliseconds()),
-            None => serializer.serialize_none(),
-        }
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Duration>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let opt = Option::<i64>::deserialize(deserializer)?;
-        Ok(opt.map(Duration::milliseconds))
     }
 }

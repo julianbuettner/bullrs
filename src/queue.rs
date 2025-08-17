@@ -153,4 +153,7 @@ impl QueueName {
         // ready to be picked up by a worker.
         format!("bull:{}:wait", self.0)
     }
+    pub fn metrics(&self) -> String {
+        format!("bull:{}:metrics", self.0)
+    }
 }

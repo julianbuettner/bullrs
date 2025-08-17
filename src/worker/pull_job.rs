@@ -25,7 +25,6 @@ use tokio::{
     task::JoinHandle,
     time::sleep,
 };
-use uuid::Uuid;
 
 use crate::{
     job::LightJobHandle,
@@ -36,95 +35,7 @@ use crate::{
     queue::QueueName,
 };
 
-pub struct Worker<D, R> {
-    pool: Pool,
-    queue_name: QueueName,
-    semaphore: Arc<Semaphore>,
-    background_handles: Vec<JoinHandle<()>>,
-    job_receiver: Receiver<LightJobHandle<D, R>>,
-    uid: String,
-}
-
-/// Parameterize a worker. The defaults
-/// should be fine for most use cases. For high performance applications,
-/// increase parallel_jobs or parallel_connections.
-#[derive(Clone, Debug)]
-pub struct WorkerArgs {
-    /// How many jobs should a worker work at once at max.
-    /// Parallel jobs should be more than parallel connections to be meaningful.
-    pub parallel_jobs: usize,
-    /// How many parallel connections should a worker have to the Redis database.
-    /// The jobs per second are limited by redis round trip divided by parallel_connections.
-    pub parallel_connections: usize,
-}
-
-impl Default for WorkerArgs {
-    fn default() -> Self {
-        Self {
-            parallel_jobs: 32,
-            parallel_connections: 1,
-        }
-    }
-}
-
-impl<D, R> Worker<D, R>
-where
-    R: Send + 'static,
-    D: Send + 'static + DeserializeOwned + std::fmt::Debug,
-{
-    pub fn new(pool: Pool, queue_name: QueueName, args: WorkerArgs) -> Self {
-        let uid = uuid::Uuid::new_v4().to_string();
-        let semaphore = Arc::new(Semaphore::new(args.parallel_jobs));
-        let (tx, job_receiver) = channel(args.parallel_jobs);
-
-        let pull_thread_handles: Vec<_> = (0..args.parallel_connections)
-            .map(|_| {
-                tokio::spawn(pull_job_thread(
-                    pool.clone(),
-                    queue_name.clone(),
-                    tx.clone(),
-                    semaphore.clone(),
-                ))
-            })
-            .collect();
-
-        Self {
-            uid,
-            pool,
-            queue_name,
-            semaphore,
-            background_handles: pull_thread_handles,
-            job_receiver,
-        }
-    }
-
-    pub async fn pop(&mut self) -> LightJobHandle<D, R> {
-        self.job_receiver.recv().await.expect("TODO")
-    }
-}
-
-async fn lock_refresh() {}
-
-async fn pull_marker(
-    pool: Pool,
-    queue_name: QueueName,
-    sender: mpsc::Sender<(String, DateTime<Utc>)>,
-) {
-    let mut con = pool.get().await.expect("TODO");
-    let marker_name = queue_name.marker();
-    loop {
-        let res: Option<(String, String, i64)> =
-            con.bzpopmin(&marker_name, 30.).await.expect("TODO");
-        if res.is_none() {
-            continue;
-        }
-        let (_key, job_id, timestamp) = res.unwrap();
-        let ts: DateTime<Utc> = DateTime::from_timestamp_millis(timestamp).expect("TODO");
-        sender.send((job_id, ts)).await.expect("TODO");
-    }
-}
-
-async fn pull_job_thread<D, R>(
+pub async fn pull_job_thread<D, R>(
     pool: Pool,
     queue_name: QueueName,
     job_sender: Sender<LightJobHandle<D, R>>,
@@ -205,46 +116,22 @@ async fn pull_job_thread<D, R>(
     }
 }
 
-// OLD CODE BELOW
-
-pub struct CallbackWorker {
+async fn pull_marker(
     pool: Pool,
-    queue_name: String,
-    semaphore: Semaphore,
-    background_handle: JoinHandle<()>,
-}
-
-impl Drop for CallbackWorker {
-    fn drop(&mut self) {
-        self.background_handle.abort();
-    }
-}
-
-async fn background_work_setup(pool: &Pool, queue_name: &String) -> anyhow::Result<()> {
-    let mut con = pool.get().await?;
-    let q = QueueName::new(queue_name);
-    let job = MoveStalledJobsToWait {
-        queue: &q,
-        max_stalled_before_failed: 16,
-        timestamp: Utc::now(),
-        max_duration: Duration::from_millis(1_000),
-    };
-    let (failed, stalled) = job.call(&mut con).await?;
-
-    if !failed.is_empty() {
-        dbg!(failed);
-    }
-    if !stalled.is_empty() {
-        dbg!(stalled);
-    }
-    Ok(())
-}
-
-async fn background_work(pool: Pool, queue_name: String) -> () {
+    queue_name: QueueName,
+    sender: mpsc::Sender<(String, DateTime<Utc>)>,
+) {
+    let mut con = pool.get().await.expect("TODO");
+    let marker_name = queue_name.marker();
     loop {
-        if let Err(e) = background_work_setup(&pool, &queue_name).await {
-            dbg!(e);
+        let res: Option<(String, String, i64)> =
+            con.bzpopmin(&marker_name, 30.).await.expect("TODO");
+        if res.is_none() {
+            continue;
         }
-        sleep(Duration::from_millis(500)).await;
+        let (_key, job_id, timestamp) = res.unwrap();
+        let ts: DateTime<Utc> = DateTime::from_timestamp_millis(timestamp).expect("TODO");
+        sender.send((job_id, ts)).await.expect("TODO");
     }
 }
+async fn lock_refresh() {}
