@@ -12,7 +12,6 @@ use serde::{Serialize, de::DeserializeOwned};
 use tokio::{sync::OwnedSemaphorePermit, task::JoinHandle};
 
 use crate::{
-    ProgressPercent,
     job::JobOptions,
     luacommands::{
         AddLog, InvokeLuaScript, KeepJobsConfig, MoveToFinished, MoveToFinishedOptions,
@@ -20,6 +19,7 @@ use crate::{
     },
     queue::QueueName,
 };
+use crate::ProgressPercent;
 
 /// A unit of work obtained from the worker instance to be
 /// processed. Call done() or failed() to store results.

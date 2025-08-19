@@ -1,6 +1,6 @@
 use deadpool_redis::{Config, Runtime};
 use log::info;
-use queue::Queue;
+use bullrs::{JobOptions, ProgressPercent, Queue, WorkerArgs};
 use std::{
     env::args,
     time::{Duration, Instant},
@@ -8,16 +8,6 @@ use std::{
 use tokio::time::sleep;
 
 use serde::{Deserialize, Serialize};
-
-use crate::{job::JobOptions, progress::ProgressPercent, worker::WorkerArgs};
-
-mod luacommands;
-mod milliserde;
-mod progress;
-mod queue;
-mod redisext;
-mod worker;
-mod job;
 
 #[derive(Deserialize, Serialize, Debug)]
 struct Data {
