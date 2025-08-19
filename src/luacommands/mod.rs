@@ -7,6 +7,8 @@ mod add_standard_job;
 mod move_stalled_jobs_to_wait;
 mod move_to_active;
 mod move_to_finished;
+mod obliterate;
+mod pause;
 mod update_progress;
 
 pub use add_delayed_job::AddDelayedJob;
@@ -15,6 +17,7 @@ pub use add_standard_job::AddStandardJob;
 pub use move_stalled_jobs_to_wait::MoveStalledJobsToWait;
 pub use move_to_active::{MoveToActive, MoveToActiveResult, RateLimiter};
 pub use move_to_finished::{KeepJobsConfig, MoveToFinished, MoveToFinishedOptions};
+pub use pause::{Pause, PauseAction};
 pub use update_progress::UpdateProgess;
 
 macro_rules! load_script {
@@ -30,6 +33,8 @@ lazy_static! {
     static ref MOVE_STALLED_JOBS_TO_WAIT: Script = load_script!("moveStalledJobsToWait-8.lua");
     static ref MOVE_TO_ACTIVE: Script = load_script!("moveToActive-11.lua");
     static ref MOVE_TO_FINISHED: Script = load_script!("moveToFinished-14.lua");
+    static ref OBLITERATE: Script = load_script!("obliterate-2.lua");
+    static ref PAUSE: Script = load_script!("pause-7.lua");
     static ref UPDATE_DATA: Script = load_script!("updateData-1.lua");
     static ref UPDATE_PROGRESS: Script = load_script!("updateProgress-3.lua");
 }

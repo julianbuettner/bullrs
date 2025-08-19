@@ -12,7 +12,7 @@ use tokio::{
 };
 
 use crate::{
-    job::LightJobHandle, queue::QueueName, worker::stalled_to_wait_handle::stalled_to_wait,
+    job::JobWorkHandle, queue::QueueName, worker::stalled_to_wait_handle::stalled_to_wait,
 };
 
 mod pull_job;
@@ -25,7 +25,7 @@ pub struct Worker<D, R> {
     semaphore: Arc<Semaphore>,
     job_fetch_handles: Vec<JoinHandle<()>>,
     stalled_to_wait_handle: JoinHandle<()>,
-    job_receiver: Receiver<LightJobHandle<D, R>>,
+    job_receiver: Receiver<JobWorkHandle<D, R>>,
     stalled_after: Arc<RwLock<Duration>>,
     max_stalled_before_failed: Arc<RwLock<usize>>,
     uid: String,
@@ -119,7 +119,7 @@ where
     /// Please call `done()` or `failed()`, otherwise it will be marked
     /// as failed when dropped or it will stall if redis is unavailable during
     /// the drop.
-    pub async fn pop(&mut self) -> Option<LightJobHandle<D, R>> {
+    pub async fn pop(&mut self) -> Option<JobWorkHandle<D, R>> {
         self.job_receiver.recv().await
     }
 }

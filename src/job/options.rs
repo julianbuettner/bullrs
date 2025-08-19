@@ -69,6 +69,7 @@ pub struct JobOptions {
     /// and attempts > 1. With more than one attempt and no
     /// backoff, the job is directly retried.
     pub backoff: Option<Backoff>,
+
     /// Initial delay before first try.
     #[serde(with = "crate::milliserde::duration_millis_option")]
     pub delay: Option<Duration>,

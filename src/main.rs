@@ -9,17 +9,15 @@ use tokio::time::sleep;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{job_options::JobOptions, progress::ProgressPercent, worker::WorkerArgs};
+use crate::{job::JobOptions, progress::ProgressPercent, worker::WorkerArgs};
 
-mod job;
-mod job_lock;
-mod job_options;
 mod luacommands;
 mod milliserde;
 mod progress;
 mod queue;
 mod redisext;
 mod worker;
+mod job;
 
 #[derive(Deserialize, Serialize, Debug)]
 struct Data {

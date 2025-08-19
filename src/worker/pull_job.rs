@@ -21,7 +21,7 @@ use tokio::{
 };
 
 use crate::{
-    job::LightJobHandle,
+    job::JobWorkHandle,
     luacommands::{InvokeLuaScript as _, MoveToActive, MoveToActiveResult, RateLimiter},
     queue::QueueName,
 };
@@ -29,7 +29,7 @@ use crate::{
 pub async fn pull_job_thread<D, R>(
     pool: Pool,
     queue_name: QueueName,
-    job_sender: Sender<LightJobHandle<D, R>>,
+    job_sender: Sender<JobWorkHandle<D, R>>,
     semaphore: Arc<Semaphore>,
 ) where
     D: DeserializeOwned + std::fmt::Debug,
@@ -74,7 +74,7 @@ pub async fn pull_job_thread<D, R>(
                         queue_name.as_str()
                     );
                     job_sender
-                        .send(LightJobHandle::new(
+                        .send(JobWorkHandle::new(
                             queue_name.clone(),
                             pool.clone(),
                             id,

@@ -1,89 +1,4 @@
-use std::{fmt::Debug, marker::PhantomData, sync::Arc};
-
-use deadpool_redis::Pool;
-use redis::AsyncCommands;
-use serde::{Serialize, de::DeserializeOwned};
-
-use crate::{
-    job_options::JobOptions,
-    luacommands::{AddDelayedJob, AddStandardJob, InvokeLuaScript},
-    worker::{Worker, WorkerArgs},
-};
-
-/// Performance note: cloning the queue is
-/// cheap, not performing heap allocations.
-#[derive(Clone)]
-pub struct Queue<D, R> {
-    name: QueueName,
-    pool: Pool,
-    phantom: PhantomData<(D, R)>, // Data, Result
-}
-
-impl<D, R> Queue<D, R> {
-    pub fn new(pool: Pool, name: impl ToString) -> Self {
-        Self {
-            name: QueueName::new(name),
-            pool,
-            phantom: PhantomData,
-        }
-    }
-
-    pub fn worker(&self, worker_args: WorkerArgs) -> Worker<D, R>
-    where
-        R: Send + 'static,
-        D: Send + DeserializeOwned + Debug + 'static,
-    {
-        if self.pool.status().max_size < worker_args.parallel_connections * 2 {
-            self.pool.resize(worker_args.parallel_connections * 2);
-        }
-        Worker::new(self.pool.clone(), self.name.clone(), worker_args)
-    }
-
-    pub async fn get_global_concurrency(&mut self) -> anyhow::Result<Option<usize>> {
-        Ok(self
-            .pool
-            .get()
-            .await?
-            .hget(self.name.meta(), "concurrency")
-            .await?)
-    }
-
-    pub async fn add(
-        &self,
-        job_name: &str,
-        data: &D,
-        job_options: &JobOptions,
-    ) -> anyhow::Result<String>
-    where
-        D: Serialize,
-    {
-        let mut con = self.pool.get().await?;
-        if job_options.delay.is_some() {
-            let c = AddDelayedJob {
-                queue: &self.name,
-                job_name,
-                data,
-                job_options,
-            };
-            return Ok(c.call(&mut con).await?);
-        }
-        let c = AddStandardJob {
-            queue: &self.name,
-            job_name,
-            data,
-            job_options,
-        };
-        Ok(c.call(&mut con).await?)
-    }
-
-    pub async fn schedule_simple(&mut self, job_name: &str, data: &D) -> anyhow::Result<String>
-    where
-        D: Serialize,
-    {
-        let job_options: JobOptions = Default::default();
-        self.add(job_name, data, &job_options).await
-    }
-}
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct QueueName(Arc<String>);
@@ -164,5 +79,8 @@ impl QueueName {
     }
     pub fn metrics(&self) -> String {
         format!("bull:{}:metrics", self.0)
+    }
+    pub fn base(&self) -> String {
+        format!("bull:{}:", self.0)
     }
 }

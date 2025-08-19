@@ -2,7 +2,7 @@ use chrono::Utc;
 use serde::Serialize;
 
 use crate::{
-    job_options::JobOptions,
+    job::JobOptions,
     luacommands::{ADD_STANDARD_JOB, InvokeLuaScript},
     queue::QueueName,
 };
