@@ -71,6 +71,9 @@ impl<D, R> JobWorkHandle<D, R> {
     pub fn id(&self) -> &str {
         &self.id
     }
+    pub fn name(&self) -> &str {
+        &self.name
+    }
     async fn finished<'a>(mut self, result: Result<&'a R, &'a str>)
     where
         R: Serialize,

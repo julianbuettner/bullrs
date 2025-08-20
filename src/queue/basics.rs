@@ -36,7 +36,7 @@ impl<D, R> Queue<D, R> {
         p.call(&mut con).await.expect("TODO");
     }
 
-    pub async fn add(
+    pub async fn add_with(
         &self,
         job_name: &str,
         data: &D,
@@ -64,11 +64,11 @@ impl<D, R> Queue<D, R> {
         Ok(c.call(&mut con).await?)
     }
 
-    pub async fn add_default(&mut self, job_name: &str, data: &D) -> anyhow::Result<String>
+    pub async fn add(&mut self, job_name: &str, data: &D) -> anyhow::Result<String>
     where
         D: Serialize,
     {
         let job_options: JobOptions = Default::default();
-        self.add(job_name, data, &job_options).await
+        self.add_with(job_name, data, &job_options).await
     }
 }

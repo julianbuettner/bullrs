@@ -122,6 +122,10 @@ where
     pub async fn pop(&mut self) -> Option<JobWorkHandle<D, R>> {
         self.job_receiver.recv().await
     }
+
+    pub fn has_work(&self) -> bool {
+        !self.job_receiver.is_empty()
+    }
 }
 
 impl<D, R> Drop for Worker<D, R> {

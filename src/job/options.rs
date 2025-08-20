@@ -60,8 +60,7 @@ pub enum KeepJobs {
     },
 }
 
-#[derive(Debug, Serialize, Builder)]
-#[derive(Default)]
+#[derive(Default, Debug, Serialize, Builder)]
 pub struct JobOptions {
     /// Maximum tries to get the job done.
     pub attempts: Option<usize>,
