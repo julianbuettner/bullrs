@@ -9,26 +9,26 @@ It's a great choice for distributed, event driven systems with fallible units of
 
 Some things I love about BullMQ:
 - Leveraging the efficiency and reliability of Redis
-- Retrial of jobs, with configured backoff
+- Retrial of jobs, with configurable backoff
 - Taking a look at failed and completed jobs, with logs and failure reason
 - Ease of use
 
 ## Relation to BullMQ
 This library can be used completely without a BullMQ instance. However, it works
 exactly the same way, thereby using established, well tested
-patterns and it also reuses the same lua of BullMQ to be executed on the
-Redis server. It also ensures interoperability with BullMQ.
+patterns and it also uses the same lua script of BullMQ to be executed on the
+Redis server. This way it ensures interoperability with BullMQ.
 Projects having producers and workers in BullMQ (TypeScript / JavaScript) can slowly
 migrate to Rust based BullRS producers and workers.
 
 ## BullRS
-BullRS is async and builds on the tokio runtime. We always target interoperability
+BullRS is async and builds on the tokio runtime. I always target interoperability
 with the newest BullMQ version, but most things are expected to be backwards compatible
 in both ways.
 
-Priorities of our values:
+Priorities:
 - 1. Reliability
-    - everything should work exactly as expected and no job should ever be dropped
+    - everything should work exactly as expected and no job should ever be lost
 - 2. Ease of use
     - beginner friendly, sensible defaults and hard to misuse
 - 3. Performance

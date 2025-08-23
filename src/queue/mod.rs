@@ -25,4 +25,7 @@ impl<D, R> Queue<D, R> {
             phantom: PhantomData,
         }
     }
+    pub fn name(&self) -> &str {
+        self.name.as_str()
+    }
 }

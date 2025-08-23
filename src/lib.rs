@@ -1,12 +1,12 @@
 mod job;
 mod luacommands;
-mod milliserde;
+pub mod milliserde;
 mod progress;
 mod queue;
 mod redisext;
 mod worker;
 
+pub use job::JobOptions;
 pub use progress::*;
 pub use queue::Queue;
-pub use job::JobOptions;
-pub use worker::{WorkerArgs, Worker};
+pub use worker::{Worker, WorkerArgs};

@@ -1,8 +1,12 @@
+use anyhow::bail;
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{
     job::JobOptions,
-    luacommands::{AddDelayedJob, AddStandardJob, InvokeLuaScript, Pause, PauseAction},
+    luacommands::{
+        AddDelayedJob, AddPrioritizedJob, AddPrioritizedJobReturn, AddStandardJob, InvokeLuaScript,
+        Obliterate, ObliterateReturn, Pause, PauseAction,
+    },
     queue::Queue,
     worker::{Worker, WorkerArgs},
 };
@@ -55,6 +59,19 @@ impl<D, R> Queue<D, R> {
             };
             return Ok(c.call(&mut con).await?);
         }
+        if job_options.priority.is_some() {
+            let c = AddPrioritizedJob {
+                queue: &self.name,
+                job_name,
+                data,
+                job_options,
+            };
+            match c.call(&mut con).await {
+                Ok(AddPrioritizedJobReturn::JobId(job_id)) => return Ok(job_id),
+                Ok(AddPrioritizedJobReturn::MissingParentKey) => bail!("Bad."),
+                Err(e) => bail!("Bad too {e:?}"),
+            }
+        }
         let c = AddStandardJob {
             queue: &self.name,
             job_name,
@@ -64,11 +81,36 @@ impl<D, R> Queue<D, R> {
         Ok(c.call(&mut con).await?)
     }
 
-    pub async fn add(&mut self, job_name: &str, data: &D) -> anyhow::Result<String>
+    pub async fn add(&self, job_name: &str, data: &D) -> anyhow::Result<String>
     where
         D: Serialize,
     {
         let job_options: JobOptions = Default::default();
         self.add_with(job_name, data, &job_options).await
+    }
+
+    /// Completely remove everything about this queue.
+    /// It makes multiple trips to Redis, as it is unfeasable of
+    /// deleting potentially millions of jobs in a single lua
+    /// script execution.
+    pub async fn obliterate(self) {
+        self.pause().await;
+        let mut con = self.pool.get().await.expect("TODO");
+        loop {
+            let ob = Obliterate {
+                queue: &self.name,
+                batch_size: 1000,
+                force: true,
+            };
+            let res = ob.call(&mut con).await.expect("TODO");
+            match res {
+                ObliterateReturn::Progress => (),
+                ObliterateReturn::Obliterated => break,
+                ObliterateReturn::ActiveJobs => panic!("ActiveJobs"),
+                ObliterateReturn::NotPaused => {
+                    panic!("Should have been paused")
+                }
+            }
+        }
     }
 }

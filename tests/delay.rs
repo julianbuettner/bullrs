@@ -1,33 +1,19 @@
-use std::time::{Duration, Instant};
-
 use bullrs::{JobOptions, Queue, WorkerArgs};
 use deadpool_redis::{Config, Pool, Runtime};
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
+use std::time::{Duration, Instant};
 use tokio::time::sleep;
-
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-struct Input {
-    input: i64,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct Output {
-    output: i64,
-}
-
-fn random_queue() -> Queue<Input, Output> {
-    let cfg = Config::from_url("redis://127.0.0.1/");
-    let pool = cfg.create_pool(Some(Runtime::Tokio1)).unwrap();
-    let name = format!("test-{}", nanoid!());
-    Queue::new(pool, name)
-}
+mod setup;
+use setup::*;
 
 #[tokio::test]
 #[test_log::test]
-async fn redis_delayed() {
-    let q = random_queue();
+async fn redis_time_delayed() {
+    let tq = setup::TestQueue::new("delayed");
+    let q = &tq.queue;
     let mut w = q.worker(WorkerArgs::default());
+    let start = Instant::now();
     q.add_with(
         "A",
         &Input { input: 11 },
@@ -37,14 +23,22 @@ async fn redis_delayed() {
     )
     .await
     .unwrap();
-    let start = Instant::now();
-    sleep(Duration::from_millis(5)).await;
-    assert!(!w.has_work());
+    sleep(Duration::from_millis(9) - start.elapsed()).await;
+    assert!(
+        !w.has_work(),
+        "Job dequeued from worker after 9ms but delay was 10ms"
+    );
 
     let j = w.pop().await.unwrap();
     let diff = start.elapsed();
-    assert!(diff < Duration::from_millis(11));
-    assert!(diff > Duration::from_millis(10));
+    assert!(diff > Duration::from_millis(10), "Duration was {diff:?}");
+    assert!(
+        // Even if Redis freezes for a bit and we are on a slow PC,
+        // the given time should be enough. I think. If this is flakey, I will
+        // Increase it significantly
+        diff < Duration::from_millis(50),
+        "Delay was 10ms, but received after {diff:?}"
+    );
 
     assert_eq!(j.name(), "A");
     assert_eq!(j.data(), &Input { input: 11 });
