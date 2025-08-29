@@ -17,6 +17,7 @@ use crate::{
 
 mod pull_job;
 mod stalled_to_wait_handle;
+mod drop_handler;
 use pull_job::pull_job_thread;
 
 pub struct Worker<D, R> {

@@ -7,8 +7,7 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use deadpool_redis::Pool;
 use log::warn;
-use redis::AsyncCommands as _;
-use serde::{Serialize, de::DeserializeOwned};
+use serde::Serialize;
 use tokio::{sync::OwnedSemaphorePermit, task::JoinHandle};
 
 use crate::ProgressPercent;
@@ -29,7 +28,7 @@ pub struct JobWorkHandle<D, R> {
     pool: Pool,
     id: String,
     name: String,
-    semaphore_permit: OwnedSemaphorePermit,
+    _semaphore_permit: OwnedSemaphorePermit,
     data: D,
     phantom: PhantomData<R>, // Result
     lock_refresh_handle: JoinHandle<()>,
@@ -55,7 +54,7 @@ impl<D, R> JobWorkHandle<D, R> {
             pool,
             id,
             name,
-            semaphore_permit,
+            _semaphore_permit: semaphore_permit,
             data,
             lock_refresh_handle,
             phantom: PhantomData,

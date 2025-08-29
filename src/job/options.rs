@@ -25,7 +25,7 @@ pub struct BackoffOptions {
     /// Add a random factor to the delay, for a jitter
     /// of 0.1 (10%) the delay will be between 0.9 * original delay
     /// and 1.1 * original delay. This can be useful to distribute
-    /// retries over time, if many jobs failed at once.
+    /// retries over time, if many jobs failed at once (thundering herd problem).
     pub jitter: Option<f32>,
 }
 
@@ -64,26 +64,32 @@ pub enum KeepJobs {
 pub struct JobOptions {
     /// Maximum tries to get the job done.
     pub attempts: Option<usize>,
+
     /// Describe _when_ a job should be retried on failure,
     /// and attempts > 1. With more than one attempt and no
     /// backoff, the job is directly retried.
     pub backoff: Option<Backoff>,
 
-    /// Initial delay before first try.
+    /// Basis delay for exponential backoff or delay between linear retries.
     #[serde(with = "crate::milliserde::duration_millis_option")]
     pub delay: Option<Duration>,
+
     /// Overwrite JobID. By default, every job gets an auto incremented
     /// integer (compare to PostgreSQL Serial), but you can define any string.
     /// If a job with the given id already exists, it is not added. Use
     /// the deduplication feature for deduplication.
     pub job_id: Option<String>,
+
     /// How many logs entries too keep.
     #[serde(rename = "kl")]
     pub keep_logs: Option<usize>,
+
     /// Last In First Out, makes rarely sense.
     pub lifo: Option<bool>,
+
     /// Configure parent job relation
     pub parent: Option<ParentOptions>,
+
     /// No priority means highest priority. Higher numbers
     /// mean lower priority. Using priority comes at a cost though.
     /// A sorted set (compare to datastructure heap) has to be maintained.
@@ -91,8 +97,10 @@ pub struct JobOptions {
     /// `None` has highest priority, then Some(0) and the lowest possible
     /// priority is Some(2_097_152).
     pub priority: Option<usize>,
+
     /// When and how to keep jobs after completing
     pub remove_on_complete: Option<KeepJobs>,
+
     /// When and how to keep jobs after failing and exceeding all attempts
     pub remove_on_fail: Option<KeepJobs>,
 
@@ -113,6 +121,7 @@ pub struct JobOptions {
     #[serde(rename = "cpof")]
     pub continue_parent_on_failure: Option<bool>,
 
+    /// I don't understand yet what this does.
     #[serde(rename = "de")]
     pub deduplication_something: Option<String>,
 }
