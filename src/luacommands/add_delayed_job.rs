@@ -25,10 +25,7 @@ where
         con: &mut impl redis::aio::ConnectionLike,
     ) -> redis::RedisResult<Self::Return> {
         let key_prefix = self.queue.prefix();
-        let custom_id: &str = self
-            .job_options
-            .job_id.as_deref()
-            .unwrap_or("");
+        let custom_id: &str = self.job_options.job_id.as_deref().unwrap_or("");
         let parent_key: Option<String> = None;
         let parent_dependencies_key = "";
         let repeat_job_key = "";
@@ -50,7 +47,6 @@ where
             deduplication_key,
         );
 
-        
         ADD_DELAYED_JOB
             .key(self.queue.marker())
             .key(self.queue.meta())

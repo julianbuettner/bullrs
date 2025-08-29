@@ -116,4 +116,3 @@ pub struct JobOptions {
     #[serde(rename = "de")]
     pub deduplication_something: Option<String>,
 }
-

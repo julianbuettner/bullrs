@@ -1,9 +1,8 @@
-use std::marker::PhantomData;
 use chrono::Duration;
 use deadpool_redis::Pool;
+use std::marker::PhantomData;
 
 use crate::queue::QueueName;
-
 
 pub struct JobJoinHandle<D, R> {
     queue_name: QueueName,

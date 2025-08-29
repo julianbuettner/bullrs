@@ -1,5 +1,11 @@
+#![warn(missing_docs)]
+#![doc = include_str!("../README.md")]
 mod job;
 mod luacommands;
+
+/// Multiple serde modules for converting between milliseconds (as in JavaScript Dates once
+/// strigified) and rust equivalents, namely `Duration`, `Option<Duration>`,
+/// `chrono::DateTime<Utc>` and `Option<chrono::DateTime<Utc>>`.
 pub mod milliserde;
 mod progress;
 mod queue;

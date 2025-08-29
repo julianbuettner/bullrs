@@ -2,11 +2,24 @@ use chrono::{DateTime, Utc};
 use serde::{self, Deserialize, Deserializer, Serializer};
 use std::time::Duration;
 
+/// De/serialize `Option<Duration>` as milliseconds:
+/// ```
+/// use serde::{Serialize, Deserialize};
+/// use std::time::Duration;
+///
+/// #[derive(Serialize, Deserialize)]
+/// struct MyStruct {
+///     #[serde(with = "bullrs::milliserde::duration_millis_option")]
+///     dur: Option<Duration>,
+/// }
+/// ```
 pub mod duration_millis_option {
     use std::time::Duration;
 
     use serde::{self, Deserialize, Deserializer, Serializer, ser};
 
+    /// Serialize `Option<Duration>` as milliseconds via serde field attribute.
+    /// `#[serde(deserialize_with = "bullrs::milliserde::duration_millis_option::serialize")]`
     pub fn serialize<S>(duration: &Option<Duration>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -24,6 +37,8 @@ pub mod duration_millis_option {
         }
     }
 
+    /// Deserialize `Option<Duration>` as milliseconds via serde field attribute.
+    /// `#[serde(deserialize_with = "bullrs::milliserde::duration_millis_option::deserialize")]`
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Duration>, D::Error>
     where
         D: Deserializer<'de>,
@@ -33,9 +48,22 @@ pub mod duration_millis_option {
     }
 }
 
+/// De/serialize `Duration` as milliseconds:
+/// ```
+/// use serde::{Serialize, Deserialize};
+/// use std::time::Duration;
+///
+/// #[derive(Serialize, Deserialize)]
+/// struct MyStruct {
+///     #[serde(with = "bullrs::milliserde::duration_millis")]
+///     dur: Duration,
+/// }
+/// ```
 pub mod duration_millis {
     use super::*;
 
+    /// Serialize `Duration` as milliseconds:
+    /// `#[serde(with = "bullrs::milliserde::duration_millis::serialize")]`
     pub fn serialize<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -43,6 +71,8 @@ pub mod duration_millis {
         serializer.serialize_u64(duration.as_millis() as u64)
     }
 
+    /// Deserialize `Duration` as milliseconds:
+    /// `#[serde(with = "bullrs::milliserde::duration_millis::deserialize")]`
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Duration, D::Error>
     where
         D: Deserializer<'de>,
@@ -52,9 +82,22 @@ pub mod duration_millis {
     }
 }
 
+/// De/serialize `DateTime<Utc>` as milliseconds:
+/// ```
+/// use serde::{Serialize, Deserialize};
+/// use chrono::{DateTime, Utc};
+///
+/// #[derive(Serialize, Deserialize)]
+/// struct MyStruct {
+///     #[serde(with = "bullrs::milliserde::timestamp_millis")]
+///     ts: DateTime<Utc>,
+/// }
+/// ```
 pub mod timestamp_millis {
     use super::*;
 
+    /// Serialize `DateTime<Utc>` as milliseconds:
+    /// `#[serde(with = "bullrs::milliserde::timestamp_millis::serialize")]`
     pub fn serialize<S>(timestamp: &DateTime<Utc>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -62,6 +105,8 @@ pub mod timestamp_millis {
         serializer.serialize_i64(timestamp.timestamp_millis())
     }
 
+    /// Deserialize `DateTime<Utc>` as milliseconds:
+    /// `#[serde(with = "bullrs::milliserde::timestamp_millis::deserialize")]`
     pub fn deserialize<'de, D>(deserializer: D) -> Result<DateTime<Utc>, D::Error>
     where
         D: Deserializer<'de>,
@@ -72,9 +117,22 @@ pub mod timestamp_millis {
     }
 }
 
+/// De/serialize `Option<DateTime<Utc>>` as milliseconds:
+/// ```
+/// use serde::{Serialize, Deserialize};
+/// use chrono::{DateTime, Utc};
+///
+/// #[derive(Serialize, Deserialize)]
+/// struct MyStruct {
+///     #[serde(with = "bullrs::milliserde::timestamp_millis_option")]
+///     ts: Option<DateTime<Utc>>,
+/// }
+/// ```
 pub mod timestamp_millis_option {
     use super::*;
 
+    /// Serialize `Option<DateTime<Utc>>` as milliseconds:
+    /// `#[serde(with = "bullrs::milliserde::timestamp_millis_option::serialize")]`
     pub fn serialize<S>(timestamp: &Option<DateTime<Utc>>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -85,6 +143,8 @@ pub mod timestamp_millis_option {
         }
     }
 
+    /// Deserialize `Option<DateTime<Utc>>` as milliseconds:
+    /// `#[serde(with = "bullrs::milliserde::timestamp_millis_option::deserialize")]`
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<DateTime<Utc>>, D::Error>
     where
         D: Deserializer<'de>,

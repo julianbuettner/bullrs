@@ -11,6 +11,7 @@ use redis::AsyncCommands as _;
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::{sync::OwnedSemaphorePermit, task::JoinHandle};
 
+use crate::ProgressPercent;
 use crate::{
     job::JobOptions,
     luacommands::{
@@ -19,7 +20,6 @@ use crate::{
     },
     queue::QueueName,
 };
-use crate::ProgressPercent;
 
 /// A unit of work obtained from the worker instance to be
 /// processed. Call done() or failed() to store results.
@@ -175,4 +175,3 @@ struct JobState<D, R> {
     timestamp: DateTime<Utc>,
     stack_trace: Option<String>,
 }
-
