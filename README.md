@@ -3,12 +3,16 @@
 A BullMQ compatible message queue for highly reliable job processing.
 
 ## State of this project
+
+> [!WARNING]  
+> This project is not ready. It lacks error handling, documentation and some functionality to be really useful.
+
 The project currently only implements the most basic features of BullMQ and is much less tested.
 Also the API is expected to change over the next few versions.
 
 ## Why use BullRS or BullMQ
 BullMQ and BullRS use Redis to manage jobs in a highly reliable and scalable manner,
-distribute them across workers, with retrials, inspectability and much more.  
+distribute them across workers, with retrials, inspecting logs and much more.  
 It's a great choice for distributed, event driven systems with fallible units of work.
 
 ## Relation to BullMQ

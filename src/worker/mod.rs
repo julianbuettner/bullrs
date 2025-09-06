@@ -106,6 +106,7 @@ where
         let (tx, job_receiver) = channel(args.parallel_jobs);
         let stalled_after = Arc::new(RwLock::new(args.stalled_after));
         let max_stalled_before_failed = Arc::new(RwLock::new(args.max_stalled_before_failed));
+        let fail_worker_after = args.fail_worker_after.clone();
 
         let job_fetch_handles: Vec<_> = (0..args.parallel_connections)
             .map(|_| {
@@ -113,6 +114,7 @@ where
                     pool.clone(),
                     queue_name.clone(),
                     tx.clone(),
+                    args.fail_worker_after,
                     semaphore.clone(),
                 ))
             })
@@ -134,8 +136,9 @@ where
             job_receiver,
             max_stalled_before_failed,
             stalled_to_wait_handle,
-            fail_worker_after: args.fail_worker_after,
+            fail_worker_after,
             stalled_after,
+            terminating_initiated: AtomicBool::from(false),
         }
     }
 

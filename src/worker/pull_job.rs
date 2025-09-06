@@ -92,7 +92,7 @@ pub async fn pull_job_thread<D, R>(
             phantom: PhantomData, // TODO without
         };
         let get_job = mts.call(&mut con).await.unwrap();
-        let sleep_timer: Result<Option<Duration>, WorkerError> =
+        let sleep_timer: Option<Duration> =
             match get_job {
                 MoveToActiveResult::JobData { id, data } => {
                     let lock_refresh_handle = tokio::spawn(lock_refresh());
