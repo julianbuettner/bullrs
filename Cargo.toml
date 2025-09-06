@@ -1,8 +1,12 @@
 [package]
 name = "bullrs"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2024"
 license = "MIT"
+readme = "README.md"
+description = "A BullMQ compatible Job Queue based on Redis"
+repository = "https://github.com/julianbuettner/bullrs"
+authors = ["Julian Büttner <git@julianbuettner.dev>"]
 
 [lib]
 crate-type = ["lib"]
