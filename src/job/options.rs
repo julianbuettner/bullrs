@@ -60,14 +60,15 @@ pub enum KeepJobs {
     },
 }
 
+/// Configure enqueue and retry behaviour of a job.
 #[derive(Default, Debug, Serialize, Builder)]
 pub struct JobOptions {
-    /// Maximum tries to get the job done.
+    /// Maximum tries before considering a job failed. Will be tried at least once, even for `Some(0)`.
     pub attempts: Option<usize>,
 
-    /// Describe _when_ a job should be retried on failure,
-    /// and attempts > 1. With more than one attempt and no
-    /// backoff, the job is directly retried.
+    /// Describe _when_ a job should be retried on failure (attempts > 1),
+    /// With more than one attempt configured and no backoff defined, the job is directly retried.
+    /// This is rarely what you would want, so consider configuring a backoff.
     pub backoff: Option<Backoff>,
 
     /// Basis delay for exponential backoff or delay between linear retries.
@@ -80,9 +81,9 @@ pub struct JobOptions {
     /// the deduplication feature for deduplication.
     pub job_id: Option<String>,
 
-    /// How many logs entries too keep.
+    /// Keep only the N newest logs of a job. `None` keeps all logs.
     #[serde(rename = "kl")]
-    pub keep_logs: Option<usize>,
+    pub limit_logs: Option<usize>,
 
     /// Last In First Out, makes rarely sense.
     pub lifo: Option<bool>,

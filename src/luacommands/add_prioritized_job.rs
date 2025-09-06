@@ -48,7 +48,7 @@ where
         let arguments = (
             key_prefix,
             custom_id,
-            self.job_name,
+            job_name,
             timestamp,
             parent_key,
             wait_children_key,

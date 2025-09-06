@@ -1,46 +1,78 @@
 use std::sync::Arc;
+use thiserror::Error;
 
-#[derive(Debug, Clone)]
-pub struct QueueName(Arc<String>);
+/// There are multiple reasons why a queue name is invalid.
+#[derive(Error, Debug, PartialEq, Eq)]
+pub enum InvalidQueueName {
+    /// Queue name contained colon, which is forbidden, as it
+    /// is handled specially by Redis.
+    #[error("queue name can't contain a colon, as that's a separator used by redis")]
+    Colon,
+    /// A queue name can't be empty and I think you know that.
+    #[error("queue name can't be empty")]
+    Empty,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueueName(Arc<str>);
 
 impl QueueName {
-    pub fn new(name: impl ToString) -> Self {
-        Self(Arc::from(name.to_string()))
+    /// Name of a queue. Will be trimmed and then has to be non-empty
+    /// and not contain colons.
+    ///
+    /// ```
+    /// use bullrs::{QueueName, InvalidQueueName};
+    ///
+    /// let q = QueueName::new("   Send Email ").unwrap();
+    /// assert_eq!(q.as_str(), "Send Email");
+    ///
+    /// assert_eq!(QueueName::new("not:allowed"), Err(InvalidQueueName::Colon));
+    /// ```
+    pub fn new(name: impl ToString) -> Result<Self, InvalidQueueName> {
+        let name = name.to_string().trim().to_string();
+        if name.contains(":") {
+            return Err(InvalidQueueName::Colon);
+        }
+        if name.is_empty() {
+            return Err(InvalidQueueName::Empty);
+        }
+        Ok(Self(Arc::from(name)))
     }
+    /// Dereference the name as a &str.
     pub fn as_str(&self) -> &str {
-        self.0.as_str()
+        &self.0
     }
-    pub fn active(&self) -> String {
+    pub(crate) fn active(&self) -> String {
         format!("bull:{}:active", self.0)
     }
-    pub fn completed(&self) -> String {
+    pub(crate) fn completed(&self) -> String {
         format!("bull:{}:completed", self.0)
     }
-    pub fn delayed(&self) -> String {
+    pub(crate) fn delayed(&self) -> String {
         format!("bull:{}:delayed", self.0)
     }
-    pub fn events(&self) -> String {
+    pub(crate) fn events(&self) -> String {
         format!("bull:{}:events", self.0)
     }
-    pub fn failed(&self) -> String {
+    pub(crate) fn failed(&self) -> String {
         format!("bull:{}:failed", self.0)
     }
-    pub fn id(&self) -> String {
+    pub(crate) fn id(&self) -> String {
         format!("bull:{}:id", self.0)
     }
-    pub fn job(&self, job_id: &str) -> String {
+    pub(crate) fn job(&self, job_id: &str) -> String {
         format!("bull:{}:{}", self.0, job_id)
     }
-    pub fn job_lock(&self, job_id: &str) -> String {
+    pub(crate) fn job_lock(&self, job_id: &str) -> String {
         format!("bull:{}:{}:lock", self.0, job_id)
     }
-    pub fn job_logs(&self, job_id: &str) -> String {
+    pub(crate) fn job_logs(&self, job_id: &str) -> String {
         format!("bull:{}:{}:logs", self.0, job_id)
     }
-    pub fn limiter(&self) -> String {
+    pub(crate) fn limiter(&self) -> String {
         format!("bull:{}:limiter", self.0)
     }
-    pub fn marker(&self) -> String {
+    pub(crate) fn marker(&self) -> String {
         // A sorted set containing
         // key value pairs about delayed jobs.
         // jobId: targetTimestampMs
@@ -49,38 +81,38 @@ impl QueueName {
         // jobs.
         format!("bull:{}:marker", self.0)
     }
-    pub fn meta(&self) -> String {
+    pub(crate) fn meta(&self) -> String {
         // A hashmap to contain global configuration
         // about queue, like if it is paused or rate limits.
         format!("bull:{}:meta", self.0)
     }
-    pub fn paused(&self) -> String {
+    pub(crate) fn paused(&self) -> String {
         format!("bull:{}:paused", self.0)
     }
-    pub fn prefix(&self) -> String {
+    pub(crate) fn prefix(&self) -> String {
         format!("bull:{}:", self.0)
     }
-    pub fn prioritized(&self) -> String {
+    pub(crate) fn prioritized(&self) -> String {
         format!("bull:{}:prioritized", self.0)
     }
-    pub fn priority_counter(&self) -> String {
+    pub(crate) fn priority_counter(&self) -> String {
         format!("bull:{}:pc", self.0)
     }
-    pub fn stalled(&self) -> String {
+    pub(crate) fn stalled(&self) -> String {
         format!("bull:{}:stalled", self.0)
     }
-    pub fn stalled_check(&self) -> String {
+    pub(crate) fn stalled_check(&self) -> String {
         format!("bull:{}:stalled-check", self.0)
     }
-    pub fn wait(&self) -> String {
+    pub(crate) fn wait(&self) -> String {
         // Set containing IDs of jobs,
         // ready to be picked up by a worker.
         format!("bull:{}:wait", self.0)
     }
-    pub fn metrics(&self) -> String {
+    pub(crate) fn metrics(&self) -> String {
         format!("bull:{}:metrics", self.0)
     }
-    pub fn base(&self) -> String {
+    pub(crate) fn base(&self) -> String {
         format!("bull:{}:", self.0)
     }
 }

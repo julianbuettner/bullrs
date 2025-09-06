@@ -1,6 +1,6 @@
 use std::thread::spawn;
 
-use bullrs::Queue;
+use bullrs::{Queue, QueueName};
 use deadpool_redis::{Config, Pool, Runtime};
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
@@ -30,12 +30,12 @@ impl TestQueue {
         let name = format!("test-{}-{}", pref, nanoid!());
         let pool = get_pool();
         Self {
-            queue: Queue::new(pool, name),
+            queue: Queue::new(pool, QueueName::new(name).unwrap()),
         }
     }
 }
 
-fn uglydrop(name: String) {
+fn uglydrop(name: QueueName) {
     let rt = runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -49,7 +49,7 @@ fn uglydrop(name: String) {
 
 impl Drop for TestQueue {
     fn drop(&mut self) {
-        let name = self.queue.name().to_string();
+        let name = self.queue.name().clone();
         let jh = spawn(|| uglydrop(name));
         jh.join().unwrap();
     }

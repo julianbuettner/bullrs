@@ -158,7 +158,8 @@ impl<D, R> Drop for JobWorkHandle<D, R> {
     }
 }
 
-// All possible fields a Job can have in the Redis HashMap
+// TODO: allow to fetch those datapoints from job
+#[allow(dead_code)]
 struct JobState<D, R> {
     atm: Option<usize>, // attempts made
     data: D,

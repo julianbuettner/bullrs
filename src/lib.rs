@@ -12,7 +12,10 @@ mod queue;
 mod redisext;
 mod worker;
 
-pub use job::JobOptions;
+pub use job::{JobJoinHandle, JobOptions};
 pub use progress::*;
-pub use queue::Queue;
+pub use queue::{Queue, QueueName, InvalidQueueName};
 pub use worker::{Worker, WorkerArgs};
+
+// stable: 437
+// nightly: 471

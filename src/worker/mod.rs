@@ -1,5 +1,11 @@
 use nanoid::nanoid;
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
 use deadpool_redis::Pool;
 use serde::de::DeserializeOwned;
@@ -12,24 +18,36 @@ use tokio::{
 };
 
 use crate::{
-    job::JobWorkHandle, queue::QueueName, worker::stalled_to_wait_handle::stalled_to_wait,
+    job::JobWorkHandle,
+    queue::QueueName,
+    worker::{stalled_to_wait_handle::stalled_to_wait, workererror::WorkerError},
 };
 
+mod drop_handler;
 mod pull_job;
 mod stalled_to_wait_handle;
-mod drop_handler;
+mod workererror;
 use pull_job::pull_job_thread;
 
+/// The worker makes jobs available for processing.
+///
+/// The worker maintains one or multiple connections to the Redis database to dequeue
+/// jobs.
 pub struct Worker<D, R> {
     pool: Pool,
     queue_name: QueueName,
     semaphore: Arc<Semaphore>,
     job_fetch_handles: Vec<JoinHandle<()>>,
     stalled_to_wait_handle: JoinHandle<()>,
-    job_receiver: Receiver<JobWorkHandle<D, R>>,
+    job_receiver: Receiver<Result<JobWorkHandle<D, R>, WorkerError>>,
     stalled_after: Arc<RwLock<Duration>>,
     max_stalled_before_failed: Arc<RwLock<usize>>,
+    fail_worker_after: Duration,
     uid: String,
+    /// If terminating has been gracefully initiated we know that
+    /// no more jobs are coming from the pull job due to planned termination
+    /// and not due to error and self-termination.
+    terminating_initiated: AtomicBool,
 }
 
 /// Parameterize a worker. The defaults should be fine for most use cases.
@@ -58,6 +76,11 @@ pub struct WorkerArgs {
     /// recommended to leave this value at it's default.
     /// Defaults to 30s.
     pub stalled_after: Duration,
+    /// The worker is supposed to be robust against temporal downtimes of the Redis server.
+    /// But after how much time should the [Worker::pop] emit the underlaying (and staying) error?
+    /// The default is set to 60s. For null values the first error shut's down the worker.
+    /// If there are regular connectivity issues consider enabling the logs of this crate.
+    pub fail_worker_after: Duration,
 }
 
 impl Default for WorkerArgs {
@@ -67,6 +90,7 @@ impl Default for WorkerArgs {
             parallel_connections: 1,
             max_stalled_before_failed: 1,
             stalled_after: Duration::from_secs(30),
+            fail_worker_after: Duration::from_secs(60),
         }
     }
 }
@@ -76,7 +100,7 @@ where
     R: Send + 'static,
     D: Send + 'static + DeserializeOwned + std::fmt::Debug,
 {
-    pub fn new(pool: Pool, queue_name: QueueName, args: WorkerArgs) -> Self {
+    pub(crate) fn new(pool: Pool, queue_name: QueueName, args: WorkerArgs) -> Self {
         let uid = nanoid!();
         let semaphore = Arc::new(Semaphore::new(args.parallel_jobs));
         let (tx, job_receiver) = channel(args.parallel_jobs);
@@ -110,6 +134,7 @@ where
             job_receiver,
             max_stalled_before_failed,
             stalled_to_wait_handle,
+            fail_worker_after: args.fail_worker_after,
             stalled_after,
         }
     }
@@ -120,12 +145,38 @@ where
     /// Please call `done()` or `failed()`, otherwise it will be marked
     /// as failed when dropped or it will stall if redis is unavailable during
     /// the drop.
-    pub async fn pop(&mut self) -> Option<JobWorkHandle<D, R>> {
-        self.job_receiver.recv().await
+    pub async fn pop(&mut self) -> Option<Result<JobWorkHandle<D, R>, WorkerError>> {
+        match self.job_receiver.recv().await {
+            None => {
+                // The sending part of the channel was dropped
+                if (self.is_terminating_gracefully()) {
+                    None
+                } else {
+                    Some(Err(WorkerError::AlreadyTerminated))
+                }
+            }
+            x => x,
+        }
     }
 
+    /// Check if a worker has at least one job ready for procesing.
+    /// This will guarantee that [pop()] will return `Some`thing.
     pub fn has_work(&self) -> bool {
         !self.job_receiver.is_empty()
+    }
+
+    /// Terminate this worker gracefully. [Self::pop] will emit the last pre-loaded
+    /// jobs and then return only `None` values.
+    pub fn terminate(&self) {
+        self.terminating_initiated.store(true, Ordering::SeqCst);
+        self.stalled_to_wait_handle.abort();
+        for h in self.job_fetch_handles.iter() {
+            h.abort();
+        }
+    }
+
+    fn is_terminating_gracefully(&self) -> bool {
+        self.terminating_initiated.load(Ordering::SeqCst)
     }
 }
 

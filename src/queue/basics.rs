@@ -12,6 +12,7 @@ use crate::{
 };
 
 impl<D, R> Queue<D, R> {
+    /// Get a worker for processing jobs of this queue
     pub fn worker(&self, worker_args: WorkerArgs) -> Worker<D, R>
     where
         R: Send + 'static,
