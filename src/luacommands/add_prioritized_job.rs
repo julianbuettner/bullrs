@@ -1,6 +1,7 @@
 use chrono::Utc;
 use redis::{ErrorKind, RedisError, Value};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::Error};
+use thiserror::Error;
 
 use crate::{
     JobOptions,
@@ -18,6 +19,15 @@ pub struct AddPrioritizedJob<'a, D> {
 #[derive(Debug, Deserialize)]
 pub enum AddPrioritizedJobReturn {
     JobId(String),
+}
+
+#[derive(Debug, Error)]
+pub enum AddPrioritizedJobError {
+    #[error("redis error: {0}")]
+    RedisError(#[from] RedisError),
+    #[error("failed to serialize job payload to json: {0}")]
+    SerializationFailed(#[from] serde_json::Error),
+    #[error("parent key is missing")]
     MissingParentKey,
 }
 
@@ -30,7 +40,7 @@ where
     async fn call(
         self,
         con: &mut impl redis::aio::ConnectionLike,
-    ) -> redis::RedisResult<Self::Return> {
+    ) -> Result<Self::Return, AddPrioritizedJobError> {
         let key_prefix = self.queue.prefix();
         let custom_id: &str = self.job_options.job_id.as_deref().unwrap_or("");
         let parent_key: Option<String> = None;
@@ -58,6 +68,8 @@ where
             deduplication_key,
         );
 
+        let payload_serialized = serde_json::to_string(self.data)?;
+
         let inner_result: Value = ADD_PRIORITIZED_JOB
             .key(self.queue.marker())
             .key(self.queue.meta())
@@ -69,11 +81,10 @@ where
             .key(self.queue.events())
             .key(self.queue.priority_counter())
             .arg(rmp_serde::to_vec(&arguments).expect("should never fail"))
-            .arg(serde_json::to_string(self.data).expect("TODO: handle that"))
+            .arg(payload_serialized)
             .arg(rmp_serde::to_vec_named(self.job_options).expect("serializing never fails"))
             .invoke_async(con)
-            .await
-            .expect("TODO");
+            .await?;
         match inner_result {
             Value::Int(-5) => Ok(AddPrioritizedJobReturn::MissingParentKey),
             Value::BulkString(s) => Ok(AddPrioritizedJobReturn::JobId(
@@ -84,7 +95,7 @@ where
                 ErrorKind::ResponseError,
                 "Unexpected response from AddPrioritizedJob lua script",
                 format!("Response was {x:?}"),
-            ))),
+            )))?,
         }
     }
 }

@@ -44,7 +44,7 @@ lazy_static! {
 }
 
 pub trait InvokeLuaScript {
-    type Return;
+    type Result;
 
-    async fn call(self, con: &mut impl ConnectionLike) -> RedisResult<Self::Return>;
+    async fn call(self, con: &mut impl ConnectionLike) -> Self::Result;
 }
