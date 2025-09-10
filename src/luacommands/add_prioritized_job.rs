@@ -35,12 +35,9 @@ impl<'a, D> InvokeLuaScript for AddPrioritizedJob<'a, D>
 where
     D: Serialize,
 {
-    type Return = AddPrioritizedJobReturn;
+    type Result = Result<AddPrioritizedJobReturn, AddPrioritizedJobError>;
 
-    async fn call(
-        self,
-        con: &mut impl redis::aio::ConnectionLike,
-    ) -> Result<Self::Return, AddPrioritizedJobError> {
+    async fn call(self, con: &mut impl redis::aio::ConnectionLike) -> Self::Result {
         let key_prefix = self.queue.prefix();
         let custom_id: &str = self.job_options.job_id.as_deref().unwrap_or("");
         let parent_key: Option<String> = None;
@@ -86,7 +83,7 @@ where
             .invoke_async(con)
             .await?;
         match inner_result {
-            Value::Int(-5) => Ok(AddPrioritizedJobReturn::MissingParentKey),
+            Value::Int(-5) => Err(AddPrioritizedJobError::MissingParentKey),
             Value::BulkString(s) => Ok(AddPrioritizedJobReturn::JobId(
                 String::from_utf8_lossy(&s).into(),
             )),
