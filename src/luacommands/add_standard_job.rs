@@ -1,8 +1,10 @@
 use chrono::Utc;
-use serde::Serialize;
+use redis::{ErrorKind, RedisError, Value};
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::{
-    job::JobOptions,
+    JobOptions,
     luacommands::{ADD_STANDARD_JOB, InvokeLuaScript},
     queue::QueueName,
 };
@@ -15,15 +17,28 @@ pub struct AddStandardJob<'a, D> {
     pub job_options: &'a JobOptions,
 }
 
+#[derive(Debug, Deserialize)]
+pub enum AddStandardJobReturn {
+    JobId(String),
+}
+
+#[derive(Debug, Error)]
+pub enum AddStandardJobError {
+    #[error("redis error: {0}")]
+    RedisError(#[from] RedisError),
+    #[error("failed to serialize job payload to json: {0}")]
+    SerializationFailed(#[from] serde_json::Error),
+    #[error("parent key is missing")]
+    MissingParentKey,
+}
+
 impl<'a, D> InvokeLuaScript for AddStandardJob<'a, D>
 where
     D: Serialize,
 {
-    type Return = String;
-    async fn call(
-        self,
-        con: &mut impl redis::aio::ConnectionLike,
-    ) -> redis::RedisResult<Self::Return> {
+    type Result = Result<AddStandardJobReturn, AddStandardJobError>;
+
+    async fn call(self, con: &mut impl redis::aio::ConnectionLike) -> Self::Result {
         let key_prefix = self.queue.prefix();
         let custom_id: &str = self.job_options.job_id.as_deref().unwrap_or("");
         let parent_key: Option<String> = None;
@@ -50,7 +65,9 @@ where
             repeat_job_key,
             deduplication_key,
         );
-        Ok(ADD_STANDARD_JOB
+        let payload_serialized = serde_json::to_string(self.data)?;
+
+        let inner_result: Value = ADD_STANDARD_JOB
             .key(self.queue.wait())
             .key(self.queue.paused())
             .key(self.queue.meta())
@@ -60,11 +77,22 @@ where
             .key(self.queue.active())
             .key(self.queue.events())
             .key(self.queue.marker())
-            .arg(rmp_serde::to_vec(&arguments_tuple).unwrap())
-            .arg(serde_json::to_string(self.data).unwrap())
-            .arg(rmp_serde::to_vec_named(self.job_options).unwrap())
+            .arg(rmp_serde::to_vec(&arguments_tuple).expect("should never fails"))
+            .arg(payload_serialized)
+            .arg(rmp_serde::to_vec_named(self.job_options).expect("serializing never fails"))
             .invoke_async(con)
-            .await
-            .unwrap())
+            .await?;
+        match inner_result {
+            Value::Int(-5) => Err(AddStandardJobError::MissingParentKey),
+            Value::BulkString(s) => Ok(AddStandardJobReturn::JobId(
+                String::from_utf8_lossy(&s).into(),
+            )),
+            Value::SimpleString(s) => Ok(AddStandardJobReturn::JobId(s)),
+            x => Err(RedisError::from((
+                ErrorKind::ResponseError,
+                "Unexpected response from AddStandardJob lua script",
+                format!("Response was {x:?}"),
+            )))?,
+        }
     }
 }
