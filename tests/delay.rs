@@ -29,7 +29,7 @@ async fn redis_time_delayed() {
         "Job dequeued from worker after 9ms but delay was 10ms"
     );
 
-    let j = w.pop().await.unwrap();
+    let j = w.next().await.unwrap();
     let diff = start.elapsed();
     assert!(diff > Duration::from_millis(10), "Duration was {diff:?}");
     assert!(

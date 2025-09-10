@@ -16,15 +16,15 @@ async fn redis_fifo_order() {
 
     let mut w = q.worker(WorkerArgs::default());
 
-    let j = w.pop().await.unwrap();
+    let j = w.next().await.unwrap();
     assert_eq!(j.name(), "A");
     assert_eq!(j.data(), &Input { input: 11 });
 
-    let j = w.pop().await.unwrap();
+    let j = w.next().await.unwrap();
     assert_eq!(j.name(), "B");
     assert_eq!(j.data(), &Input { input: 22 });
 
-    let j = w.pop().await.unwrap();
+    let j = w.next().await.unwrap();
     assert_eq!(j.name(), "C");
     assert_eq!(j.data(), &Input { input: 33 });
 }
@@ -53,19 +53,19 @@ async fn redis_fofo_lifo_mix() {
 
     let mut w = q.worker(WorkerArgs::default());
 
-    let j = w.pop().await.unwrap();
+    let j = w.next().await.unwrap();
     assert_eq!(j.name(), "D");
     assert_eq!(j.data(), &Input { input: 44 });
 
-    let j = w.pop().await.unwrap();
+    let j = w.next().await.unwrap();
     assert_eq!(j.name(), "C");
     assert_eq!(j.data(), &Input { input: 33 });
 
-    let j = w.pop().await.unwrap();
+    let j = w.next().await.unwrap();
     assert_eq!(j.name(), "A");
     assert_eq!(j.data(), &Input { input: 11 });
 
-    let j = w.pop().await.unwrap();
+    let j = w.next().await.unwrap();
     assert_eq!(j.name(), "B");
     assert_eq!(j.data(), &Input { input: 22 });
 }
