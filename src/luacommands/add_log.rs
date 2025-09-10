@@ -1,4 +1,4 @@
-use redis::RedisError;
+use redis::{RedisError, RedisResult};
 
 use crate::{
     luacommands::{ADD_LOG, InvokeLuaScript},
@@ -13,12 +13,9 @@ pub struct AddLog<'a> {
 }
 
 impl<'a> InvokeLuaScript for AddLog<'a> {
-    type Return = u64;
+    type Result = RedisResult<u64>;
 
-    async fn call(
-        self,
-        con: &mut impl redis::aio::ConnectionLike,
-    ) -> redis::RedisResult<Self::Return> {
+    async fn call(self, con: &mut impl redis::aio::ConnectionLike) -> Self::Result {
         let keep_logs = self.keep_logs.map(|v| v.to_string()).unwrap_or_default();
 
         let v: i64 = ADD_LOG
