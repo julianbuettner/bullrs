@@ -31,15 +31,13 @@ pub async fn pull_job_thread<D, R>(
     pool: Pool,
     queue_name: QueueName,
     job_sender: Sender<Result<JobWorkHandle<D, R>, WorkerError>>,
-    failure_timeout: Duration,
     semaphore: Arc<Semaphore>,
+    failure_cooldown: Duration,
 ) where
     D: DeserializeOwned + std::fmt::Debug,
 {
     let (marker_send, mut marker_recv) = mpsc::channel(1);
     spawn(poll_marker(pool.clone(), queue_name.clone(), marker_send));
-
-    let mut first_error: Option<Instant> = None;
 
     let worker_id = nanoid!();
     let mut counter: usize = 0;
@@ -52,27 +50,20 @@ pub async fn pull_job_thread<D, R>(
         let start = Instant::now();
         let con = pool.get().await;
         if let Err(e) = con {
-            match e {
-                PoolError::Closed => {
-                    job_sender.send(Err(WorkerError::PoolClosed));
-                    return;
-                }
-                x => {
-                    if let Some(ts) = first_error
-                        && ts.elapsed() > failure_timeout
-                    {
-                        job_sender.send(Err(x.into()));
-                        return;
-                    }
-                    if first_error.is_none() {
-                        first_error = Some(Instant::now());
-                    }
-                }
+            let fatal = match &e {
+                &PoolError::Closed => true,
+                _ => false,
+            };
+            if job_sender.send(Err(e.into())).await.is_err() {
+                // Received is closed anyways. Terminate.
+                return;
             }
-            sleep(Duration::from_secs(1)).await;
+            if fatal {
+                return;
+            }
+            sleep(failure_cooldown).await;
             continue;
         }
-
         let mut con = con.unwrap();
         trace!(
             "Worker thread {worker_id} acquired connection after {:?}",

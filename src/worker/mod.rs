@@ -42,7 +42,7 @@ pub struct Worker<D, R> {
     job_receiver: Receiver<Result<JobWorkHandle<D, R>, WorkerError>>,
     stalled_after: Arc<RwLock<Duration>>,
     max_stalled_before_failed: Arc<RwLock<usize>>,
-    fail_worker_after: Duration,
+    cooldown_after_error: Duration,
     uid: String,
     /// If terminating has been gracefully initiated we know that
     /// no more jobs are coming from the pull job due to planned termination
@@ -76,11 +76,11 @@ pub struct WorkerArgs {
     /// recommended to leave this value at it's default.
     /// Defaults to 30s.
     pub stalled_after: Duration,
-    /// The worker is supposed to be robust against temporal downtimes of the Redis server.
-    /// But after how much time should the [Worker::pop] emit the underlaying (and staying) error?
-    /// The default is set to 60s. For null values the first error shut's down the worker.
-    /// If there are regular connectivity issues consider enabling the logs of this crate.
-    pub fail_worker_after: Duration,
+    /// When the worker fails to pull the next job, like due to the database being down, how
+    /// long should it sleep before retrying. Keep in mind, that every error is emitted
+    /// when calling [Worker::next].
+    /// Defaults to 3s.
+    cooldown_after_error: Duration,
 }
 
 impl Default for WorkerArgs {
@@ -90,7 +90,7 @@ impl Default for WorkerArgs {
             parallel_connections: 1,
             max_stalled_before_failed: 1,
             stalled_after: Duration::from_secs(30),
-            fail_worker_after: Duration::from_secs(60),
+            cooldown_after_error: Duration::from_secs(3),
         }
     }
 }
@@ -106,7 +106,7 @@ where
         let (tx, job_receiver) = channel(args.parallel_jobs);
         let stalled_after = Arc::new(RwLock::new(args.stalled_after));
         let max_stalled_before_failed = Arc::new(RwLock::new(args.max_stalled_before_failed));
-        let fail_worker_after = args.fail_worker_after.clone();
+        let cooldown_after_error = args.cooldown_after_error;
 
         let job_fetch_handles: Vec<_> = (0..args.parallel_connections)
             .map(|_| {
@@ -114,8 +114,8 @@ where
                     pool.clone(),
                     queue_name.clone(),
                     tx.clone(),
-                    args.fail_worker_after,
                     semaphore.clone(),
+                    args.cooldown_after_error,
                 ))
             })
             .collect();
@@ -136,39 +136,31 @@ where
             job_receiver,
             max_stalled_before_failed,
             stalled_to_wait_handle,
-            fail_worker_after,
+            cooldown_after_error: cooldown_after_error,
             stalled_after,
             terminating_initiated: AtomicBool::from(false),
         }
     }
 
     /// Get the next job. It might have been queued in memory.
-    /// Returns `None` is the workers graceful shutdown has been
-    /// initiated and all remaining jobs are processed.
-    /// Please call `done()` or `failed()`, otherwise it will be marked
-    /// as failed when dropped or it will stall if redis is unavailable during
-    /// the drop.
-    pub async fn pop(&mut self) -> Option<Result<JobWorkHandle<D, R>, WorkerError>> {
-        match self.job_receiver.recv().await {
-            None => {
-                // The sending part of the channel was dropped
-                if (self.is_terminating_gracefully()) {
-                    None
-                } else {
-                    Some(Err(WorkerError::AlreadyTerminated))
-                }
-            }
-            x => x,
-        }
+    /// Returns `None` if the workers is terminating and all remaining messages have been processed.
+    /// The worker will only terminate gracefully or for unrecoverable errors
+    /// like if the pool has been closed externally. Note that if there are _n_ parallel
+    /// connections configured, there will be _n_ times as many error messages per time.
+    /// Please call [JobWorkHandle::done()] or [JobWorkHandle::failed()], otherwise it will be marked
+    /// as failed (and retried) when dropped or it will stall if redis is unavailable and the job
+    /// can't be moved to failed/retrying.
+    pub async fn next(&mut self) -> Option<Result<JobWorkHandle<D, R>, WorkerError>> {
+        self.job_receiver.recv().await
     }
 
-    /// Check if a worker has at least one job ready for procesing.
-    /// This will guarantee that [pop()] will return `Some`thing.
-    pub fn has_work(&self) -> bool {
+    /// Check if a worker has at least one job or error ready.
+    /// This will guarantee that [Worker::next] will return `Some`thing.
+    pub fn has_next(&self) -> bool {
         !self.job_receiver.is_empty()
     }
 
-    /// Terminate this worker gracefully. [Self::pop] will emit the last pre-loaded
+    /// Terminate this worker gracefully. [Worker::next] will emit the last pre-loaded
     /// jobs and then return only `None` values.
     pub fn terminate(&self) {
         self.terminating_initiated.store(true, Ordering::SeqCst);
