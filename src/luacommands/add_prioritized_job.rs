@@ -1,12 +1,12 @@
 use chrono::Utc;
 use redis::{ErrorKind, RedisError, Value};
-use serde::{Deserialize, Serialize, de::Error};
+use serde::{de::Error, Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
-    JobOptions,
-    luacommands::{ADD_PRIORITIZED_JOB, InvokeLuaScript},
+    luacommands::{InvokeLuaScript, ADD_PRIORITIZED_JOB},
     queue::QueueName,
+    JobOptions,
 };
 
 pub struct AddPrioritizedJob<'a, D> {
@@ -17,12 +17,12 @@ pub struct AddPrioritizedJob<'a, D> {
 }
 
 #[derive(Debug, Deserialize)]
-pub enum AddPrioritizedJobReturn {
+pub enum AddPrioritizedJobOk {
     JobId(String),
 }
 
 #[derive(Debug, Error)]
-pub enum AddPrioritizedJobError {
+pub enum AddPrioritizedJobErr {
     #[error("redis error: {0}")]
     RedisError(#[from] RedisError),
     #[error("failed to serialize job payload to json: {0}")]
@@ -35,9 +35,11 @@ impl<'a, D> InvokeLuaScript for AddPrioritizedJob<'a, D>
 where
     D: Serialize,
 {
-    type Result = Result<AddPrioritizedJobReturn, AddPrioritizedJobError>;
+    type RedisOutput = Value;
+    type DomainOk = AddPrioritizedJobOk;
+    type DomainErr = AddPrioritizedJobErr;
 
-    async fn call(self, con: &mut impl redis::aio::ConnectionLike) -> Self::Result {
+    fn generate_invocation(&self) -> Result<redis::ScriptInvocation<'static>, Self::DomainErr> {
         let key_prefix = self.queue.prefix();
         let custom_id: &str = self.job_options.job_id.as_deref().unwrap_or("");
         let parent_key: Option<String> = None;
@@ -67,7 +69,8 @@ where
 
         let payload_serialized = serde_json::to_string(self.data)?;
 
-        let inner_result: Value = ADD_PRIORITIZED_JOB
+        let mut invocation = ADD_PRIORITIZED_JOB.prepare_invoke();
+        invocation
             .key(self.queue.marker())
             .key(self.queue.meta())
             .key(self.queue.id())
@@ -79,15 +82,17 @@ where
             .key(self.queue.priority_counter())
             .arg(rmp_serde::to_vec(&arguments).expect("should never fail"))
             .arg(payload_serialized)
-            .arg(rmp_serde::to_vec_named(self.job_options).expect("serializing never fails"))
-            .invoke_async(con)
-            .await?;
-        match inner_result {
-            Value::Int(-5) => Err(AddPrioritizedJobError::MissingParentKey),
-            Value::BulkString(s) => Ok(AddPrioritizedJobReturn::JobId(
+            .arg(rmp_serde::to_vec_named(self.job_options).expect("serializing never fails"));
+        Ok(invocation)
+    }
+
+    fn map_value(&self, value: Self::RedisOutput) -> Result<Self::DomainOk, Self::DomainErr> {
+        match value {
+            Value::Int(-5) => Err(AddPrioritizedJobErr::MissingParentKey),
+            Value::BulkString(s) => Ok(AddPrioritizedJobOk::JobId(
                 String::from_utf8_lossy(&s).into(),
             )),
-            Value::SimpleString(s) => Ok(AddPrioritizedJobReturn::JobId(s)),
+            Value::SimpleString(s) => Ok(AddPrioritizedJobOk::JobId(s)),
             x => Err(RedisError::from((
                 ErrorKind::ResponseError,
                 "Unexpected response from AddPrioritizedJob lua script",

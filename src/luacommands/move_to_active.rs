@@ -3,7 +3,7 @@ use std::{collections::HashMap, time::Duration};
 
 use chrono::{DateTime, Utc};
 use redis::{FromRedisValue, RedisResult};
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
     luacommands::{InvokeLuaScript, MOVE_TO_ACTIVE},
@@ -20,7 +20,7 @@ pub struct MoveToActive<'a, D: DeserializeOwned> {
     pub phantom: PhantomData<D>,
 }
 
-pub struct MoveToActiveReturn<D: DeserializeOwned> {
+pub struct MoveToActiveOk<D: DeserializeOwned> {
     job_data: Option<ActiveJob<D>>,
     job_id: Option<String>,
     expire: Option<Duration>,

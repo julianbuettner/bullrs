@@ -51,7 +51,7 @@ impl RedisHashMapExt for HashMap<String, String> {
         }
     }
     fn extract_duration_ms_opt(&self, key: &str) -> Result<Option<Duration>, RedisHashMapError> {
-        let ms: u64 = self.extract(key)?;
-        Ok(Duration::from_millis(ms))
+        let ms: Option<u64> = self.extract_opt(key)?;
+        Ok(ms.map(Duration::from_millis))
     }
 }

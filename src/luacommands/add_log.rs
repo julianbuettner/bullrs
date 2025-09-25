@@ -13,12 +13,12 @@ pub struct AddLog<'a> {
     pub keep_logs: Option<usize>,
 }
 
-pub struct AddLogOut {
+pub struct AddLogOk {
     new_count: usize,
 }
 
 #[derive(Debug, Error)]
-pub enum AddLogError {
+pub enum AddLogErr {
     #[error("redis error: {0}")]
     RedisError(#[from] RedisError),
     #[error("job \"{job_id}\" in queue \"{}\" doesn't exist (anymore)", queue_name.as_str())]
@@ -32,10 +32,10 @@ pub enum AddLogError {
 
 impl<'a> InvokeLuaScript for AddLog<'a> {
     type RedisOutput = i64;
-    type DomainOutput = AddLogOut;
-    type DomainError = AddLogError;
+    type DomainOk = AddLogOk;
+    type DomainErr = AddLogErr;
 
-    fn generate_invocation(&self) -> redis::ScriptInvocation<'static> {
+    fn generate_invocation(&self) -> Result<redis::ScriptInvocation<'static>, Self::DomainErr> {
         let keep_logs = self.keep_logs.map(|v| v.to_string()).unwrap_or_default();
         let mut invocation = ADD_LOG.prepare_invoke();
         invocation
@@ -44,23 +44,19 @@ impl<'a> InvokeLuaScript for AddLog<'a> {
             .arg(self.job_id)
             .arg(self.log_line)
             .arg(keep_logs);
-        invocation
+        Ok(invocation)
     }
 
-    fn map_redis_error(&self, input: RedisError) -> Self::DomainError {
-        input.into()
-    }
-
-    fn map_value(&self, value: Self::RedisOutput) -> Result<Self::DomainOutput, Self::DomainError> {
+    fn map_value(&self, value: Self::RedisOutput) -> Result<Self::DomainOk, Self::DomainErr> {
         match value {
-            0..=i64::MAX => Ok(AddLogOut {
+            0..=i64::MAX => Ok(AddLogOk {
                 new_count: value as usize,
             }),
-            -1 => Err(AddLogError::JobNotFound {
+            -1 => Err(AddLogErr::JobNotFound {
                 job_id: self.job_id.into(),
                 queue_name: self.queue.clone(),
             }),
-            i64::MIN..-1 => Err(AddLogError::UnexpectedValue(value)),
+            i64::MIN..-1 => Err(AddLogErr::UnexpectedValue(value)),
         }
     }
 }

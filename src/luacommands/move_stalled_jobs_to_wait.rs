@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use redis::{RedisResult, aio::ConnectionLike};
+use redis::{aio::ConnectionLike, RedisError, RedisResult};
 
 use crate::{
     luacommands::{InvokeLuaScript, MOVE_STALLED_JOBS_TO_WAIT},
@@ -23,10 +23,13 @@ pub struct MoveStalledJobsToWait<'a> {
 }
 
 impl<'a> InvokeLuaScript for MoveStalledJobsToWait<'a> {
-    type Result = RedisResult<Vec<String>>;
+    type RedisOutput = Vec<String>;
+    type DomainOk = Vec<String>;
+    type DomainErr = RedisError;
 
-    async fn call<'b>(self, con: &'b mut impl ConnectionLike) -> RedisResult<Vec<String>> {
-        MOVE_STALLED_JOBS_TO_WAIT
+    fn generate_invocation(&self) -> Result<redis::ScriptInvocation<'static>, Self::DomainErr> {
+        let mut invocation = MOVE_STALLED_JOBS_TO_WAIT.prepare_invoke();
+        invocation
             .key(self.queue.stalled())
             .key(self.queue.wait())
             .key(self.queue.active())
@@ -38,8 +41,11 @@ impl<'a> InvokeLuaScript for MoveStalledJobsToWait<'a> {
             .arg(self.max_stalled_before_failed)
             .arg(self.queue.prefix())
             .arg(self.timestamp.timestamp_millis())
-            .arg(self.max_duration.as_millis() as u64)
-            .invoke_async(con)
-            .await
+            .arg(self.max_duration.as_millis() as u64);
+        Ok(invocation)
+    }
+
+    fn map_value(&self, value: Self::RedisOutput) -> Result<Self::DomainOk, Self::DomainErr> {
+        Ok(value)
     }
 }

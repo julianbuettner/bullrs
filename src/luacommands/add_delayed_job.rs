@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
-    JobOptions,
-    luacommands::{ADD_DELAYED_JOB, InvokeLuaScript},
+    luacommands::{InvokeLuaScript, ADD_DELAYED_JOB},
     queue::QueueName,
+    JobOptions,
 };
 
 pub struct AddDelayedJob<'a, D> {
@@ -17,12 +17,12 @@ pub struct AddDelayedJob<'a, D> {
 }
 
 #[derive(Debug, Deserialize)]
-pub enum AddDelayedJobReturn {
+pub enum AddDelayedJobOk {
     JobId(String),
 }
 
 #[derive(Debug, Error)]
-pub enum AddDelayedJobError {
+pub enum AddDelayedJobErr {
     #[error("redis error: {0}")]
     RedisError(#[from] RedisError),
     #[error("failed to serialize job payload to json: {0}")]
@@ -35,9 +35,11 @@ impl<'a, D> InvokeLuaScript for AddDelayedJob<'a, D>
 where
     D: Serialize,
 {
-    type Result = Result<AddDelayedJobReturn, AddDelayedJobError>;
+    type RedisOutput = Value;
+    type DomainOk = AddDelayedJobOk;
+    type DomainErr = AddDelayedJobErr;
 
-    async fn call(self, con: &mut impl redis::aio::ConnectionLike) -> Self::Result {
+    fn generate_invocation(&self) -> Result<redis::ScriptInvocation<'static>, Self::DomainErr> {
         let key_prefix = self.queue.prefix();
         let custom_id: &str = self.job_options.job_id.as_deref().unwrap_or("");
         let parent_key: Option<String> = None;
@@ -63,7 +65,8 @@ where
 
         let payload_serialized = serde_json::to_string(self.data)?;
 
-        let inner_result: Value = ADD_DELAYED_JOB
+        let mut invocation = ADD_DELAYED_JOB.prepare_invoke();
+        invocation
             .key(self.queue.marker())
             .key(self.queue.meta())
             .key(self.queue.id())
@@ -72,15 +75,15 @@ where
             .key(self.queue.events())
             .arg(rmp_serde::to_vec(&arguments).expect("should never fails"))
             .arg(payload_serialized)
-            .arg(rmp_serde::to_vec_named(self.job_options).expect("serializing never fails"))
-            .invoke_async(con)
-            .await?;
-        match inner_result {
-            Value::Int(-5) => Err(AddDelayedJobError::MissingParentKey),
-            Value::BulkString(s) => Ok(AddDelayedJobReturn::JobId(
-                String::from_utf8_lossy(&s).into(),
-            )),
-            Value::SimpleString(s) => Ok(AddDelayedJobReturn::JobId(s)),
+            .arg(rmp_serde::to_vec_named(self.job_options).expect("serializing never fails"));
+        Ok(invocation)
+    }
+
+    fn map_value(&self, value: Self::RedisOutput) -> Result<Self::DomainOk, Self::DomainErr> {
+        match value {
+            Value::Int(-5) => Err(AddDelayedJobErr::MissingParentKey),
+            Value::BulkString(s) => Ok(AddDelayedJobOk::JobId(String::from_utf8_lossy(&s).into())),
+            Value::SimpleString(s) => Ok(AddDelayedJobOk::JobId(s)),
             x => Err(RedisError::from((
                 ErrorKind::ResponseError,
                 "Unexpected response from AddDelayedJob lua script",

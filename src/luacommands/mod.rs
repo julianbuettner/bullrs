@@ -18,7 +18,7 @@ mod update_progress;
 
 pub use add_delayed_job::AddDelayedJob;
 pub use add_log::AddLog;
-pub use add_prioritized_job::{AddPrioritizedJob, AddPrioritizedJobReturn};
+pub use add_prioritized_job::{AddPrioritizedJob, AddPrioritizedJobOk};
 pub use add_standard_job::AddStandardJob;
 pub use move_stalled_jobs_to_wait::MoveStalledJobsToWait;
 pub use move_to_active::{MoveToActive, MoveToActiveResult, RateLimiter};
@@ -49,20 +49,19 @@ lazy_static! {
 
 pub trait InvokeLuaScript {
     type RedisOutput: FromRedisValue;
-    type DomainOutput;
-    type DomainError: Error;
+    type DomainOk;
+    type DomainErr: Error + From<RedisError>;
 
-    fn generate_invocation<'a>(&self) -> ScriptInvocation<'static>;
+    fn generate_invocation(&self) -> Result<ScriptInvocation<'static>, Self::DomainErr>;
 
-    fn map_redis_error(&self, error: RedisError) -> Self::DomainError;
+    fn map_redis_error(&self, error: RedisError) -> Self::DomainErr {
+        error.into()
+    }
 
-    fn map_value(&self, value: Self::RedisOutput) -> Result<Self::DomainOutput, Self::DomainError>;
+    fn map_value(&self, value: Self::RedisOutput) -> Result<Self::DomainOk, Self::DomainErr>;
 
-    async fn call(
-        &self,
-        con: &mut impl ConnectionLike,
-    ) -> Result<Self::DomainOutput, Self::DomainError> {
-        let invocation = self.generate_invocation();
+    async fn call(&self, con: &mut impl ConnectionLike) -> Result<Self::DomainOk, Self::DomainErr> {
+        let invocation = self.generate_invocation()?;
         let redis_res: Self::RedisOutput = invocation
             .invoke_async(con)
             .await

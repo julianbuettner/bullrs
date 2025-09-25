@@ -4,7 +4,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use crate::{
     job::JobOptions,
     luacommands::{
-        AddDelayedJob, AddPrioritizedJob, AddPrioritizedJobReturn, AddStandardJob, InvokeLuaScript,
+        AddDelayedJob, AddPrioritizedJob, AddPrioritizedJobOk, AddStandardJob, InvokeLuaScript,
         Obliterate, ObliterateReturn, Pause, PauseAction,
     },
     queue::Queue,
@@ -68,8 +68,8 @@ impl<D, R> Queue<D, R> {
                 job_options,
             };
             match c.call(&mut con).await {
-                Ok(AddPrioritizedJobReturn::JobId(job_id)) => return Ok(job_id),
-                Ok(AddPrioritizedJobReturn::MissingParentKey) => bail!("Bad."),
+                Ok(AddPrioritizedJobOk::JobId(job_id)) => return Ok(job_id),
+                Ok(AddPrioritizedJobOk::MissingParentKey) => bail!("Bad."),
                 Err(e) => bail!("Bad too {e:?}"),
             }
         }
