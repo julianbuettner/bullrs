@@ -1,5 +1,9 @@
+use std::error::Error;
+
 use lazy_static::lazy_static;
-use redis::{RedisResult, Script, aio::ConnectionLike};
+use redis::{
+    aio::ConnectionLike, FromRedisValue, RedisError, RedisResult, Script, ScriptInvocation,
+};
 
 mod add_delayed_job;
 mod add_log;
@@ -44,7 +48,25 @@ lazy_static! {
 }
 
 pub trait InvokeLuaScript {
-    type Result;
+    type RedisOutput: FromRedisValue;
+    type DomainOutput;
+    type DomainError: Error;
 
-    async fn call(self, con: &mut impl ConnectionLike) -> Self::Result;
+    fn generate_invocation<'a>(&self) -> ScriptInvocation<'static>;
+
+    fn map_redis_error(&self, error: RedisError) -> Self::DomainError;
+
+    fn map_value(&self, value: Self::RedisOutput) -> Result<Self::DomainOutput, Self::DomainError>;
+
+    async fn call(
+        &self,
+        con: &mut impl ConnectionLike,
+    ) -> Result<Self::DomainOutput, Self::DomainError> {
+        let invocation = self.generate_invocation();
+        let redis_res: Self::RedisOutput = invocation
+            .invoke_async(con)
+            .await
+            .map_err(|e| self.map_redis_error(e))?;
+        self.map_value(redis_res)
+    }
 }
