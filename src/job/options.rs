@@ -119,10 +119,13 @@ pub struct JobOptions {
 
     /// Whether or not it's parent should continue on failure.
     /// If set to false and the job fails, it's parent is marked as failed as well.
+    /// Failing parents can propagate recursively until the entire anchestor tree is
+    /// disappointed. Note that parents are only moved to failed once they are picked up
+    /// by a worker and the worker sees about the failed child.
     #[serde(rename = "cpof")]
     pub continue_parent_on_failure: Option<bool>,
 
-    /// I don't understand yet what this does.
+    /// I haven't yet looked into what this one does.
     #[serde(rename = "de")]
     pub deduplication_something: Option<String>,
 }

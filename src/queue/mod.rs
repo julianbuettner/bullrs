@@ -1,12 +1,14 @@
 mod basics;
 mod getset;
 mod name;
+mod flowjob;
 
 use std::marker::PhantomData;
 
 use deadpool_redis::Pool;
 
 pub use name::{QueueName, InvalidQueueName};
+pub use flowjob::PreparedFlowJob;
 
 /// Represents a single queue of jobs of the same format.
 ///

@@ -8,7 +8,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use crate::{
     luacommands::{InvokeLuaScript, MOVE_TO_ACTIVE},
     queue::QueueName,
-    redisext::RedisHashMapExt,
+    redisext::{RedisHashMapError, RedisHashMapExt},
 };
 
 pub struct MoveToActive<'a, D: DeserializeOwned> {
@@ -77,12 +77,9 @@ impl<'a, D> InvokeLuaScript for MoveToActive<'a, D>
 where
     D: DeserializeOwned,
 {
-    type Return = MoveToActiveResult<ActiveJob<D>>;
+    type Result = RedisResult<MoveToActiveResult<ActiveJob<D>>>;
 
-    async fn call(
-        self,
-        con: &mut impl redis::aio::ConnectionLike,
-    ) -> redis::RedisResult<Self::Return> {
+    async fn call(self, con: &mut impl redis::aio::ConnectionLike) -> Self::Result {
         #[derive(Debug, Serialize)]
         struct Opts<'a> {
             token: &'a str,
@@ -137,20 +134,21 @@ where
     }
 }
 
-fn active_job_from_hashmap<D: DeserializeOwned>(data: HashMap<String, String>) -> ActiveJob<D> {
-    ActiveJob {
-        name: data.get("name").expect("TODO").into(),
-        data: data.extract("data").expect("TODO"),
-        priority: data.extract_opt("priority").expect("TODO"),
-        timestamp: DateTime::from_timestamp_millis(data.extract::<i64>("timestamp").expect("TODO"))
-            .expect("TODO"),
+fn active_job_from_hashmap<D: DeserializeOwned>(
+    data: HashMap<String, String>,
+) -> Result<ActiveJob<D>, RedisHashMapError> {
+    Ok(ActiveJob {
+        name: data.get_v("name")?.into(),
+        data: data.extract("data")?,
+        priority: data.extract_opt("priority")?,
+        timestamp: data.extract_timestamp_ms("timestamp")?,
         processed_on: None,
         delay: data
             .extract_opt::<i64>("delay")
             .expect("TODO")
             .map(|d| Duration::from_millis(std::cmp::max(0, d) as u64)),
         stc: None,
-    }
+    })
 }
 
 impl FromRedisValue for JobDataOrExitCode {
