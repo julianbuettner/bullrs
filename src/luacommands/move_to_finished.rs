@@ -1,8 +1,10 @@
+use core::error;
 use std::{collections::HashMap, time::Duration};
 
 use chrono::{DateTime, Utc};
-use redis::{RedisResult, Value, aio::ConnectionLike};
+use redis::{aio::ConnectionLike, RedisResult, Value};
 use serde::Serialize;
+use thiserror::Error;
 
 use crate::{
     luacommands::{InvokeLuaScript, MOVE_TO_FINISHED},
@@ -90,33 +92,48 @@ pub struct RateLimiter {
     pub duration: Duration,
 }
 
-#[derive(Debug)]
-pub enum MoveToFinishedResult {
-    /// Operation successful
-    Ok,
+#[derive(Debug, Error)]
+pub enum MoveToFinishedErr {
     /// Missing key
+    #[error("job has not been found")]
     MissingKey,
     /// Missing lock
+    #[error("job lock doesn't exist (anymore?)")]
     MissingLock,
     /// Job not in active set
+    #[error("job was not in the active set")]
     JobNotActive,
     /// Job has pending children
+    #[error("job has pending children")]
     JobHasPendingChildren,
     /// Lock is not owned by this client
+    #[error("job lock is owned by other worker")]
     LockNotOwned,
     /// Job has failed children
+    #[error("job has failed children")]
     JobHasFailedChildren,
+    /// Unexpected return value from redis script
+    #[error("lua script returned unexpected value: {0}")]
+    UnexpectedLuaExitCode(i64),
+    /// Failed to serialize job result
+    #[error("failed to serialize job result: {0:?}")]
+    Serialize(#[from] serde_json::Error),
+    /// Some error occured in the Redis protocol
+    #[error("something went wrong with redis: {0:?}")]
+    RedisError(#[from] redis::RedisError),
 }
 
 impl<'a, R> InvokeLuaScript for MoveToFinished<'a, R>
 where
     R: Serialize,
 {
-    type Return = MoveToFinishedResult;
+    type DomainOk = ();
+    type DomainErr = MoveToFinishedErr;
+    type RedisOutput = i64;
 
-    async fn call(self, con: &mut impl ConnectionLike) -> RedisResult<Self::Return> {
-        let job_fields_bytes = if let Some(jf) = self.job_fields {
-            rmp_serde::to_vec_named(&jf).unwrap()
+    fn generate_invocation(&self) -> Result<redis::ScriptInvocation<'static>, Self::DomainErr> {
+        let job_fields_bytes = if let Some(jf) = &self.job_fields {
+            rmp_serde::to_vec_named(&jf).expect("rmp serde string hashmap should always succeed")
         } else {
             // Very empty object
             Vec::new()
@@ -127,7 +144,8 @@ where
             "failed"
         };
 
-        let result: Value = MOVE_TO_FINISHED
+        let mut invocation = MOVE_TO_FINISHED.prepare_invoke();
+        invocation
             .key(self.queue.wait())
             .key(self.queue.active())
             .key(self.queue.prioritized())
@@ -155,37 +173,33 @@ where
             })
             .arg(match self.result {
                 Err(e) => e.to_string(),
-                Ok(v) => serde_json::to_string(&v).expect("TODO"),
+                Ok(v) => serde_json::to_string(&v)?,
             })
             .arg(target)
             .arg("0") // Don't fetch next job
             .arg(self.queue.prefix())
-            .arg(rmp_serde::to_vec_named(&self.options).unwrap())
-            .arg(job_fields_bytes)
-            .invoke_async(con)
-            .await
-            .expect("Script failure");
+            .arg(
+                rmp_serde::to_vec_named(&self.options)
+                    .expect("Should always be able so serialize job options"),
+            )
+            .arg(job_fields_bytes);
+        Ok(invocation)
+    }
 
-        match result {
-            Value::Int(code) => match code {
-                0 => Ok(MoveToFinishedResult::Ok),
-                -1 => Ok(MoveToFinishedResult::MissingKey),
-                -2 => Ok(MoveToFinishedResult::MissingLock),
-                -3 => Ok(MoveToFinishedResult::JobNotActive),
-                -4 => Ok(MoveToFinishedResult::JobHasPendingChildren),
-                -6 => Ok(MoveToFinishedResult::LockNotOwned),
-                -9 => Ok(MoveToFinishedResult::JobHasFailedChildren),
-                _ => Err(redis::RedisError::from((
-                    redis::ErrorKind::ResponseError,
-                    "Unexpected exit code from moveToFinished",
-                    format!("Exit code: {}", code),
-                ))),
-            },
-            _ => Err(redis::RedisError::from((
-                redis::ErrorKind::ResponseError,
-                "Unexpected response format from moveToFinished",
-                format!("Response: {:?}", result),
-            ))),
+    fn map_redis_error(&self, error: redis::RedisError) -> Self::DomainErr {
+        error.into()
+    }
+
+    fn map_value(&self, value: Self::RedisOutput) -> Result<Self::DomainOk, Self::DomainErr> {
+        match value {
+            0 => Ok(()),
+            -1 => Err(MoveToFinishedErr::MissingKey),
+            -2 => Err(MoveToFinishedErr::MissingLock),
+            -3 => Err(MoveToFinishedErr::JobNotActive),
+            -4 => Err(MoveToFinishedErr::JobHasPendingChildren),
+            -6 => Err(MoveToFinishedErr::LockNotOwned),
+            -9 => Err(MoveToFinishedErr::JobHasFailedChildren),
+            v => Err(MoveToFinishedErr::UnexpectedLuaExitCode(v)),
         }
     }
 }
