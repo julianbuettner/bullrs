@@ -21,7 +21,7 @@ pub use add_log::AddLog;
 pub use add_prioritized_job::{AddPrioritizedJob, AddPrioritizedJobOk};
 pub use add_standard_job::AddStandardJob;
 pub use move_stalled_jobs_to_wait::MoveStalledJobsToWait;
-pub use move_to_active::{MoveToActive, MoveToActiveResult, RateLimiter};
+pub use move_to_active::{MoveToActive, MoveToActiveOk, RateLimiter};
 pub use move_to_finished::{KeepJobsConfig, MoveToFinished, MoveToFinishedOptions};
 pub use obliterate::{Obliterate, ObliterateReturn};
 pub use pause::{Pause, PauseAction};
