@@ -23,7 +23,7 @@ pub use add_standard_job::AddStandardJob;
 pub use move_stalled_jobs_to_wait::MoveStalledJobsToWait;
 pub use move_to_active::{MoveToActive, MoveToActiveOk, RateLimiter};
 pub use move_to_finished::{KeepJobsConfig, MoveToFinished, MoveToFinishedOptions};
-pub use obliterate::{Obliterate, ObliterateReturn};
+pub use obliterate::{Obliterate, ObliterateOk, ObliterateErr};
 pub use pause::{Pause, PauseAction};
 pub use update_progress::UpdateProgess;
 

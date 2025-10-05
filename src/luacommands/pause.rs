@@ -1,3 +1,5 @@
+use redis::RedisError;
+
 use crate::{
     luacommands::{InvokeLuaScript, PAUSE},
     queue::QueueName,
@@ -14,14 +16,13 @@ pub struct Pause<'a> {
 }
 
 impl<'a> InvokeLuaScript for Pause<'a> {
-    type Return = ();
+    type DomainOk = ();
+    type DomainErr = RedisError;
+    type RedisOutput = ();
 
-    async fn call(
-        self,
-        con: &mut impl redis::aio::ConnectionLike,
-    ) -> redis::RedisResult<Self::Return> {
-        PAUSE
-            // Set to pull jobs from
+    fn generate_invocation(&self) -> Result<redis::ScriptInvocation<'static>, Self::DomainErr> {
+        let mut invocation = PAUSE.prepare_invoke();
+        invocation
             .key(match self.action {
                 PauseAction::Pause => self.queue.wait(),
                 PauseAction::Resume => self.queue.paused(),
@@ -39,8 +40,15 @@ impl<'a> InvokeLuaScript for Pause<'a> {
             .arg(match self.action {
                 PauseAction::Pause => "paused",
                 PauseAction::Resume => "resumed",
-            })
-            .invoke_async(con)
-            .await
+            });
+        Ok(invocation)
+    }
+
+    fn map_value(&self, value: Self::RedisOutput) -> Result<Self::DomainOk, Self::DomainErr> {
+        Ok(value)
+    }
+
+    fn map_redis_error(&self, error: RedisError) -> Self::DomainErr {
+        error
     }
 }
