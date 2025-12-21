@@ -5,7 +5,7 @@ use crate::{
     job::JobOptions,
     luacommands::{
         AddDelayedJob, AddPrioritizedJob, AddPrioritizedJobOk, AddStandardJob, InvokeLuaScript,
-        Obliterate, ObliterateReturn, Pause, PauseAction,
+        Obliterate, Pause, PauseAction,
     },
     queue::Queue,
     worker::{Worker, WorkerArgs},

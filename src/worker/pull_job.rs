@@ -22,7 +22,7 @@ use tokio::{
 
 use crate::{
     job::JobWorkHandle,
-    luacommands::{InvokeLuaScript as _, MoveToActive, MoveToActiveResult, RateLimiter},
+    luacommands::{InvokeLuaScript as _, MoveToActive, MoveToActiveOk, RateLimiter},
     queue::QueueName,
     worker::workererror::WorkerError,
 };
@@ -85,7 +85,7 @@ pub async fn pull_job_thread<D, R>(
         let get_job = mts.call(&mut con).await.unwrap();
         let sleep_timer: Option<Duration> =
             match get_job {
-                MoveToActiveResult::JobData { id, data } => {
+                MoveToActiveOk::JobData { id, data } => {
                     let lock_refresh_handle = tokio::spawn(lock_refresh());
                     trace!(
                         "Worker thread {worker_id} fetched job {id} from queue {}.",
@@ -108,11 +108,11 @@ pub async fn pull_job_thread<D, R>(
                     // TODO move back to waiting if `closed`
                     None
                 }
-                MoveToActiveResult::Delay { delay } => Some(delay),
-                MoveToActiveResult::WaitUntil { timestamp } => Some(Duration::from_millis(
+                MoveToActiveOk::Delay { delay } => Some(delay),
+                MoveToActiveOk::WaitUntil { timestamp } => Some(Duration::from_millis(
                     cmp::max(0, (timestamp - Utc::now()).num_milliseconds()) as u64,
                 )),
-                MoveToActiveResult::NothingToDo => Some(Duration::from_secs(10)),
+                MoveToActiveOk::NothingToDo => Some(Duration::from_secs(10)),
             };
         if let Some(sleep_timer) = sleep_timer {
             trace!(

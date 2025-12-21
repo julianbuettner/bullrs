@@ -9,6 +9,6 @@ use nutype::nutype;
 #[nutype(
     validate(finite),
     sanitize(with = |raw: f32| raw.clamp(0.0, 100.0)),
-    derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize),
+    derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Clone, Copy),
 )]
 pub struct ProgressPercent(f32);
