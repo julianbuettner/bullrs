@@ -3,7 +3,6 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use anyhow::Result;
 use chrono::{DateTime, Utc};
 use deadpool_redis::Pool;
 use log::warn;

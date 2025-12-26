@@ -1,8 +1,7 @@
 use redis::RedisError;
 
 use crate::{
-    luacommands::{InvokeLuaScript, PAUSE},
-    queue::QueueName,
+    error::PauseResumeError, luacommands::{InvokeLuaScript, PAUSE}, queue::QueueName
 };
 
 pub enum PauseAction {
@@ -17,7 +16,7 @@ pub struct Pause<'a> {
 
 impl<'a> InvokeLuaScript for Pause<'a> {
     type DomainOk = ();
-    type DomainErr = RedisError;
+    type DomainErr = PauseResumeError;
     type RedisOutput = ();
 
     fn generate_invocation(&self) -> Result<redis::ScriptInvocation<'static>, Self::DomainErr> {
@@ -49,6 +48,6 @@ impl<'a> InvokeLuaScript for Pause<'a> {
     }
 
     fn map_redis_error(&self, error: RedisError) -> Self::DomainErr {
-        error
+        error.into()
     }
 }

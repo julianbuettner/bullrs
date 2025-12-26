@@ -32,19 +32,19 @@ async fn redis_priority() {
     q.add("C", &Input { input: 33 }).await.unwrap();
 
     let mut w = q.worker(WorkerArgs::default());
-    let job = w.next().await.unwrap();
+    let job = w.next().await.unwrap().unwrap();
     assert_eq!(job.name(), "C");
     assert_eq!(job.data().input, 33);
 
     // Maintain FIFO for same priority
-    let job = w.next().await.unwrap();
+    let job = w.next().await.unwrap().unwrap();
     assert_eq!(job.name(), "B1");
     assert_eq!(job.data().input, 20);
-    let job = w.next().await.unwrap();
+    let job = w.next().await.unwrap().unwrap();
     assert_eq!(job.name(), "B2");
     assert_eq!(job.data().input, 21);
 
-    let job = w.next().await.unwrap();
+    let job = w.next().await.unwrap().unwrap();
     assert_eq!(job.name(), "A");
     assert_eq!(job.data().input, 11);
 }

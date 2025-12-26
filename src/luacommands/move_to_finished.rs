@@ -1,8 +1,7 @@
-use core::error;
 use std::{collections::HashMap, time::Duration};
 
+use crate::error::MoveToFinishedErr;
 use chrono::{DateTime, Utc};
-use redis::{aio::ConnectionLike, RedisResult, Value};
 use serde::Serialize;
 use thiserror::Error;
 
@@ -93,7 +92,7 @@ pub struct RateLimiter {
 }
 
 #[derive(Debug, Error)]
-pub enum MoveToFinishedErr {
+pub enum MoveToFinishedErrX {
     /// Missing key
     #[error("job has not been found")]
     MissingKey,
@@ -199,7 +198,7 @@ where
             -4 => Err(MoveToFinishedErr::JobHasPendingChildren),
             -6 => Err(MoveToFinishedErr::LockNotOwned),
             -9 => Err(MoveToFinishedErr::JobHasFailedChildren),
-            v => Err(MoveToFinishedErr::UnexpectedLuaExitCode(v)),
+            v => panic!("Unexpected lua exit code: {v:#?}"),
         }
     }
 }

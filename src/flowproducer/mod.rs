@@ -1,7 +1,4 @@
-use std::iter::once;
-
 use deadpool_redis::Pool;
-use redis::RedisError;
 
 use crate::PreparedFlowJob;
 
@@ -24,7 +21,7 @@ impl FlowProducer {
         let mut flatten = Vec::new();
         fj.iter()
             .for_each(|j| j.collect_children_first(&mut flatten));
-        let con = self.pool.get().await.map_err(|_| ())?;
+        let _con = self.pool.get().await.map_err(|_| ())?;
         Ok(())
     }
 }

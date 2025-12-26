@@ -1,9 +1,9 @@
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use redis::{aio::ConnectionLike, RedisError, RedisResult};
 
 use crate::{
+    error::MoveStalledToWaitError,
     luacommands::{InvokeLuaScript, MOVE_STALLED_JOBS_TO_WAIT},
     queue::QueueName,
 };
@@ -25,7 +25,7 @@ pub struct MoveStalledJobsToWait<'a> {
 impl<'a> InvokeLuaScript for MoveStalledJobsToWait<'a> {
     type RedisOutput = Vec<String>;
     type DomainOk = Vec<String>;
-    type DomainErr = RedisError;
+    type DomainErr = MoveStalledToWaitError;
 
     fn generate_invocation(&self) -> Result<redis::ScriptInvocation<'static>, Self::DomainErr> {
         let mut invocation = MOVE_STALLED_JOBS_TO_WAIT.prepare_invoke();

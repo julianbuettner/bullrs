@@ -1,11 +1,10 @@
-use anyhow::Error;
-use redis::{ErrorKind, RedisError};
-use thiserror::Error;
+use redis::RedisError;
 
 use crate::{
+    ProgressPercent,
+    error::UpdateProgressError,
     luacommands::{InvokeLuaScript, UPDATE_PROGRESS},
     queue::QueueName,
-    ProgressPercent,
 };
 
 pub struct UpdateProgess<'a> {
@@ -14,23 +13,10 @@ pub struct UpdateProgess<'a> {
     pub progress: ProgressPercent,
 }
 
-#[derive(Debug, Error)]
-pub enum UpdateProgressErr {
-    /// Could not find job in queue
-    #[error("could not find job in queue")]
-    JobNotFound,
-    /// Lua script returned unexpected exit code
-    #[error("unexpected lua script return value: {0}")]
-    UnexpectedLuaExitCode(i32),
-    /// Some error occured in the Redis protocol
-    #[error("something went wrong with redis: {0:?}")]
-    RedisError(#[from] redis::RedisError),
-}
-
 impl<'a> InvokeLuaScript for UpdateProgess<'a> {
     type RedisOutput = i32;
     type DomainOk = ();
-    type DomainErr = UpdateProgressErr;
+    type DomainErr = UpdateProgressError;
 
     fn generate_invocation(&self) -> Result<redis::ScriptInvocation<'static>, Self::DomainErr> {
         let mut invoc = UPDATE_PROGRESS.prepare_invoke();
@@ -46,8 +32,11 @@ impl<'a> InvokeLuaScript for UpdateProgess<'a> {
     fn map_value(&self, value: Self::RedisOutput) -> Result<Self::DomainOk, Self::DomainErr> {
         match value {
             0 => Ok(()),
-            -1 => Err(UpdateProgressErr::JobNotFound),
-            x => Err(UpdateProgressErr::UnexpectedLuaExitCode(x)),
+            -1 => Err(UpdateProgressError::JobNotFound {
+                job_id: self.job_id.into(),
+                queue_name: self.queue.clone(),
+            }),
+            _x => panic!("Script should never return that value"),
         }
     }
 

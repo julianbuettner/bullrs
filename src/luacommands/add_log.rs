@@ -1,8 +1,7 @@
-use redis::{ErrorKind, RedisError, RedisResult};
-use thiserror::Error;
+use crate::error::AddLogError;
 
 use crate::{
-    luacommands::{InvokeLuaScript, ADD_LOG},
+    luacommands::{ADD_LOG, InvokeLuaScript},
     queue::QueueName,
 };
 
@@ -17,23 +16,10 @@ pub struct AddLogOk {
     new_count: usize,
 }
 
-#[derive(Debug, Error)]
-pub enum AddLogErr {
-    #[error("redis error: {0}")]
-    RedisError(#[from] RedisError),
-    #[error("job \"{job_id}\" in queue \"{}\" doesn't exist (anymore)", queue_name.as_str())]
-    JobNotFound {
-        job_id: String,
-        queue_name: QueueName,
-    },
-    #[error("bullmq protocol error, expected return value -1 or positive, got {0}.")]
-    UnexpectedValue(i64),
-}
-
 impl<'a> InvokeLuaScript for AddLog<'a> {
     type RedisOutput = i64;
     type DomainOk = AddLogOk;
-    type DomainErr = AddLogErr;
+    type DomainErr = AddLogError;
 
     fn generate_invocation(&self) -> Result<redis::ScriptInvocation<'static>, Self::DomainErr> {
         let keep_logs = self.keep_logs.map(|v| v.to_string()).unwrap_or_default();
@@ -52,11 +38,16 @@ impl<'a> InvokeLuaScript for AddLog<'a> {
             0..=i64::MAX => Ok(AddLogOk {
                 new_count: value as usize,
             }),
-            -1 => Err(AddLogErr::JobNotFound {
+            -1 => Err(AddLogError::JobNotFound {
                 job_id: self.job_id.into(),
                 queue_name: self.queue.clone(),
             }),
-            i64::MIN..-1 => Err(AddLogErr::UnexpectedValue(value)),
+            i64::MIN..-1 => {
+                panic!(
+                    "as we have control over the lua script, we should \
+                    know this never happends"
+                )
+            }
         }
     }
 }

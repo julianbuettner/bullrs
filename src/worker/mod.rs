@@ -1,7 +1,7 @@
 use nanoid::nanoid;
 use std::{
     sync::{
-        Arc, Mutex,
+        Arc,
         atomic::{AtomicBool, Ordering},
     },
     time::Duration,
@@ -98,7 +98,7 @@ impl Default for WorkerArgs {
 impl<D, R> Worker<D, R>
 where
     R: Send + 'static,
-    D: Send + 'static + DeserializeOwned + std::fmt::Debug,
+    D: Send + Sync + 'static + DeserializeOwned + std::fmt::Debug,
 {
     pub(crate) fn new(pool: Pool, queue_name: QueueName, args: WorkerArgs) -> Self {
         let uid = nanoid!();
@@ -136,7 +136,7 @@ where
             job_receiver,
             max_stalled_before_failed,
             stalled_to_wait_handle,
-            cooldown_after_error: cooldown_after_error,
+            cooldown_after_error,
             stalled_after,
             terminating_initiated: AtomicBool::from(false),
         }

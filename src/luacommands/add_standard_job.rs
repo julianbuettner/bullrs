@@ -1,12 +1,12 @@
 use chrono::Utc;
 use redis::{ErrorKind, RedisError, Value};
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
+use serde::Serialize;
 
 use crate::{
-    luacommands::{InvokeLuaScript, ADD_STANDARD_JOB},
-    queue::QueueName,
     JobOptions,
+    error::AddJobErr,
+    luacommands::{ADD_STANDARD_JOB, InvokeLuaScript},
+    queue::QueueName,
 };
 
 pub struct AddStandardJob<'a, D> {
@@ -17,28 +17,13 @@ pub struct AddStandardJob<'a, D> {
     pub job_options: &'a JobOptions,
 }
 
-#[derive(Debug, Deserialize)]
-pub enum AddStandardJobOk {
-    JobId(String),
-}
-
-#[derive(Debug, Error)]
-pub enum AddStandardJobErr {
-    #[error("redis error: {0}")]
-    RedisError(#[from] RedisError),
-    #[error("failed to serialize job payload to json: {0}")]
-    SerializationFailed(#[from] serde_json::Error),
-    #[error("parent key is missing")]
-    MissingParentKey,
-}
-
 impl<'a, D> InvokeLuaScript for AddStandardJob<'a, D>
 where
     D: Serialize,
 {
     type RedisOutput = Value;
-    type DomainOk = AddStandardJobOk;
-    type DomainErr = AddStandardJobErr;
+    type DomainOk = String;
+    type DomainErr = AddJobErr;
 
     fn generate_invocation(&self) -> Result<redis::ScriptInvocation<'static>, Self::DomainErr> {
         let key_prefix = self.queue.prefix();
@@ -87,9 +72,9 @@ where
 
     fn map_value(&self, value: Self::RedisOutput) -> Result<Self::DomainOk, Self::DomainErr> {
         match value {
-            Value::Int(-5) => Err(AddStandardJobErr::MissingParentKey),
-            Value::BulkString(s) => Ok(AddStandardJobOk::JobId(String::from_utf8_lossy(&s).into())),
-            Value::SimpleString(s) => Ok(AddStandardJobOk::JobId(s)),
+            Value::Int(-5) => Err(AddJobErr::MissingParentKey),
+            Value::BulkString(s) => Ok(String::from_utf8_lossy(&s).into()),
+            Value::SimpleString(s) => Ok(s),
             x => Err(RedisError::from((
                 ErrorKind::ResponseError,
                 "Unexpected response from AddStandardJob lua script",

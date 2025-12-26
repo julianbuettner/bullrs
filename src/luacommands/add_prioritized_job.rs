@@ -1,12 +1,12 @@
 use chrono::Utc;
 use redis::{ErrorKind, RedisError, Value};
-use serde::{de::Error, Deserialize, Serialize};
-use thiserror::Error;
+use serde::Serialize;
 
 use crate::{
-    luacommands::{InvokeLuaScript, ADD_PRIORITIZED_JOB},
-    queue::QueueName,
     JobOptions,
+    error::AddJobErr,
+    luacommands::{ADD_PRIORITIZED_JOB, InvokeLuaScript},
+    queue::QueueName,
 };
 
 pub struct AddPrioritizedJob<'a, D> {
@@ -16,28 +16,13 @@ pub struct AddPrioritizedJob<'a, D> {
     pub job_options: &'a JobOptions,
 }
 
-#[derive(Debug, Deserialize)]
-pub enum AddPrioritizedJobOk {
-    JobId(String),
-}
-
-#[derive(Debug, Error)]
-pub enum AddPrioritizedJobErr {
-    #[error("redis error: {0}")]
-    RedisError(#[from] RedisError),
-    #[error("failed to serialize job payload to json: {0}")]
-    SerializationFailed(#[from] serde_json::Error),
-    #[error("parent key is missing")]
-    MissingParentKey,
-}
-
 impl<'a, D> InvokeLuaScript for AddPrioritizedJob<'a, D>
 where
     D: Serialize,
 {
     type RedisOutput = Value;
-    type DomainOk = AddPrioritizedJobOk;
-    type DomainErr = AddPrioritizedJobErr;
+    type DomainOk = String;
+    type DomainErr = AddJobErr;
 
     fn generate_invocation(&self) -> Result<redis::ScriptInvocation<'static>, Self::DomainErr> {
         let key_prefix = self.queue.prefix();
@@ -88,11 +73,9 @@ where
 
     fn map_value(&self, value: Self::RedisOutput) -> Result<Self::DomainOk, Self::DomainErr> {
         match value {
-            Value::Int(-5) => Err(AddPrioritizedJobErr::MissingParentKey),
-            Value::BulkString(s) => Ok(AddPrioritizedJobOk::JobId(
-                String::from_utf8_lossy(&s).into(),
-            )),
-            Value::SimpleString(s) => Ok(AddPrioritizedJobOk::JobId(s)),
+            Value::Int(-5) => Err(AddJobErr::MissingParentKey),
+            Value::BulkString(s) => Ok(String::from_utf8_lossy(&s).into()),
+            Value::SimpleString(s) => Ok(s),
             x => Err(RedisError::from((
                 ErrorKind::ResponseError,
                 "Unexpected response from AddPrioritizedJob lua script",

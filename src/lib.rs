@@ -12,6 +12,7 @@ mod progress;
 mod queue;
 mod redisext;
 mod worker;
+pub mod error;
 
 pub use job::{JobJoinHandle, JobOptions};
 pub use progress::*;

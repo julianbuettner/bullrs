@@ -1,9 +1,7 @@
-use core::error;
-
-use redis::{ErrorKind, RedisError};
-use thiserror::Error;
+use redis::RedisError;
 
 use crate::{
+    error::ObliterateError,
     luacommands::{InvokeLuaScript, OBLITERATE},
     queue::QueueName,
 };
@@ -21,25 +19,9 @@ pub enum ObliterateOk {
     Obliterated,
 }
 
-#[derive(Debug, Error)]
-pub enum ObliterateErr {
-    /// Jobs are active, use force to overwrite anyways
-    #[error("queue can only be obliterated after all jobs are done")]
-    ActiveJobs,
-    /// Queue is not paused
-    #[error("queue can only be obliterated if paused")]
-    NotPaused,
-    /// Lua script returned unexpected exit code
-    #[error("unexpected lua script return value: {0}")]
-    UnexpectedLuaExitCode(i32),
-    /// Some error occured in the Redis protocol
-    #[error("something went wrong with redis: {0:?}")]
-    RedisError(#[from] redis::RedisError),
-}
-
 impl<'a> InvokeLuaScript for Obliterate<'a> {
     type DomainOk = ObliterateOk;
-    type DomainErr = ObliterateErr;
+    type DomainErr = ObliterateError;
     type RedisOutput = i32;
 
     fn generate_invocation(&self) -> Result<redis::ScriptInvocation<'static>, Self::DomainErr> {
@@ -60,9 +42,9 @@ impl<'a> InvokeLuaScript for Obliterate<'a> {
         match value {
             0 => Ok(ObliterateOk::Obliterated),
             1 => Ok(ObliterateOk::Progress),
-            -1 => Err(ObliterateErr::NotPaused),
-            -2 => Err(ObliterateErr::ActiveJobs),
-            x => Err(ObliterateErr::UnexpectedLuaExitCode(x)),
+            -1 => Err(ObliterateError::NotPaused),
+            -2 => Err(ObliterateError::ActiveJobs),
+            x => panic!("Lua script should never return: {x:#?}"),
         }
     }
 }

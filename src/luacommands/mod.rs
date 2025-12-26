@@ -1,9 +1,7 @@
 use std::error::Error;
 
 use lazy_static::lazy_static;
-use redis::{
-    aio::ConnectionLike, FromRedisValue, RedisError, RedisResult, Script, ScriptInvocation,
-};
+use redis::{FromRedisValue, RedisError, Script, ScriptInvocation, aio::ConnectionLike};
 
 mod add_delayed_job;
 mod add_log;
@@ -18,12 +16,12 @@ mod update_progress;
 
 pub use add_delayed_job::AddDelayedJob;
 pub use add_log::AddLog;
-pub use add_prioritized_job::{AddPrioritizedJob, AddPrioritizedJobOk};
+pub use add_prioritized_job::AddPrioritizedJob;
 pub use add_standard_job::AddStandardJob;
 pub use move_stalled_jobs_to_wait::MoveStalledJobsToWait;
 pub use move_to_active::{MoveToActive, MoveToActiveOk, RateLimiter};
 pub use move_to_finished::{KeepJobsConfig, MoveToFinished, MoveToFinishedOptions};
-pub use obliterate::{Obliterate, ObliterateOk, ObliterateErr};
+pub use obliterate::{Obliterate, ObliterateOk};
 pub use pause::{Pause, PauseAction};
 pub use update_progress::UpdateProgess;
 

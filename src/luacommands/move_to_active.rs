@@ -1,17 +1,18 @@
 use core::marker::PhantomData;
-use std::{collections::HashMap, string::FromUtf8Error, time::Duration};
+use std::{collections::HashMap, time::Duration};
 
 use chrono::{DateTime, Utc};
-use redis::{RedisError, Value};
-use serde::{de::DeserializeOwned, Serialize};
-use thiserror::Error;
+use redis::Value;
+use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{
+    error::MoveToActiveErr,
     luacommands::{InvokeLuaScript, MOVE_TO_ACTIVE},
     queue::QueueName,
     redisext::{RedisHashMapError, RedisHashMapExt},
 };
 
+/// Basically the "get next job" action
 pub struct MoveToActive<'a, D: DeserializeOwned> {
     pub queue: &'a QueueName,
     pub worker_id: &'a str,
@@ -64,22 +65,6 @@ pub enum MoveToActiveOk<D> {
     },
     /// No (delayed) jobs there, queue is paused, or reached maximal concurrency
     NothingToDo,
-}
-
-#[derive(Debug, Error)]
-pub enum MoveToActiveErr {
-    #[error("redis error: {0}")]
-    RedisError(#[from] RedisError),
-    #[error("failed to load job data (payload?): {0}")]
-    RedisHashMapError(#[from] RedisHashMapError),
-    #[error("expected valid utf8-string from redis: {0:?}")]
-    RedisStringInvalid(#[from] FromUtf8Error),
-    #[error("lua job did not return hash map as expected: {0:?}")]
-    UnexpectedRedisValue(Value),
-    #[error("Unexpected lua script return values: {1} {2} {3} - {0:?}")]
-    UnexpectedLuaOutput(Value, String, u64, i64),
-    #[error("Bad timestamp: {0}")]
-    BadTimestamp(i64),
 }
 
 impl<'a, D> InvokeLuaScript for MoveToActive<'a, D>
@@ -137,19 +122,14 @@ where
             },
             (Value::Int(0), 0, nt) if nt != 0 => MoveToActiveOk::WaitUntil {
                 timestamp: DateTime::from_timestamp_millis(nt)
-                    .ok_or(MoveToActiveErr::BadTimestamp(nt))?,
+                    .ok_or(MoveToActiveErr::BadTimestamp { ts: nt })?,
             },
             (Value::Int(0), 0, 0) => MoveToActiveOk::NothingToDo,
             (value, 0, 0) => MoveToActiveOk::JobData {
                 id: job_id,
                 data: active_job_from_hashmap(job_data_map(value)?)?,
             },
-            _ => Err(MoveToActiveErr::UnexpectedLuaOutput(
-                job_data,
-                job_id,
-                expire_time,
-                next_timestamp,
-            ))?,
+            _ => panic!("Are we sure the script can't output that value combination?"),
         };
         Ok(res)
     }
@@ -159,7 +139,7 @@ fn active_job_from_hashmap<D: DeserializeOwned>(
     data: HashMap<String, String>,
 ) -> Result<ActiveJob<D>, RedisHashMapError> {
     Ok(ActiveJob {
-        name: data.get_v("name")?.into(),
+        name: data.get_v("name")?,
         data: data.extract("data")?,
         priority: data.extract_opt("priority")?,
         timestamp: data.extract_timestamp_ms("timestamp")?,
@@ -175,7 +155,7 @@ fn job_data_map(v: &Value) -> Result<HashMap<String, String>, MoveToActiveErr> {
     match &v {
         redis::Value::Array(m) => {
             let mut res = HashMap::new();
-            let mut values_iter = m.into_iter();
+            let mut values_iter = m.iter();
             loop {
                 let (a, b) = (values_iter.next(), values_iter.next());
                 match (a, b) {
@@ -183,10 +163,10 @@ fn job_data_map(v: &Value) -> Result<HashMap<String, String>, MoveToActiveErr> {
                     (Some(Value::BulkString(a)), Some(Value::BulkString(b))) => {
                         res.insert(String::from_utf8(a.clone())?, String::from_utf8(b.clone())?);
                     }
-                    _ => return Err(MoveToActiveErr::UnexpectedRedisValue(v.clone())),
+                    _ => return Err(MoveToActiveErr::UnexpectedRedisValue { value: v.clone() }),
                 }
             }
         }
-        _ => Err(MoveToActiveErr::UnexpectedRedisValue(v.clone())),
+        _ => Err(MoveToActiveErr::UnexpectedRedisValue { value: v.clone() }),
     }
 }
