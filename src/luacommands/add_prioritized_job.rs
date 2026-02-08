@@ -45,7 +45,6 @@ where
             job_name,
             timestamp,
             parent_key,
-            wait_children_key,
             parent_dependencies_key,
             parent, // {id, queueKey}
             repeat_job_key,

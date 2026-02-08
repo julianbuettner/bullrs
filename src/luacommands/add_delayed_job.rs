@@ -3,7 +3,10 @@ use redis::{ErrorKind, RedisError, Value};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    JobOptions, error::AddJobErr, luacommands::{ADD_DELAYED_JOB, InvokeLuaScript}, queue::QueueName
+    JobOptions,
+    error::AddJobErr,
+    luacommands::{ADD_DELAYED_JOB, InvokeLuaScript},
+    queue::QueueName,
 };
 
 pub struct AddDelayedJob<'a, D> {
@@ -31,6 +34,7 @@ where
         let custom_id: &str = self.job_options.job_id.as_deref().unwrap_or("");
         let parent_key: Option<String> = None;
         let parent_dependencies_key = "";
+        let parent: Option<String> = None;
         let repeat_job_key = "";
         let deduplication_key = "";
         let job_name = self.job_name;
@@ -46,6 +50,7 @@ where
             timestamp,
             parent_key,
             parent_dependencies_key,
+            parent,
             repeat_job_key,
             deduplication_key,
         );
