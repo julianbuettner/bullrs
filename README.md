@@ -5,14 +5,14 @@ A BullMQ compatible message queue for highly reliable job processing.
 ## State of this project
 
 > [!WARNING]  
-> This project is not ready. It lacks error handling, documentation and some functionality to be really useful.
+> This project is not production ready. It has incomplete error handling, documentation and is constantly refactored.
 
 The project currently only implements the most basic features of BullMQ and is much less tested.
 Also the API is expected to change over the next few versions.
 
 ## Why use BullRS or BullMQ
-BullMQ and BullRS use Redis to manage jobs in a highly reliable and scalable manner,
-distribute them across workers, with retrials, inspecting logs and much more.  
+BullMQ and BullRS use Redis to manage jobs in a highly reliable and scalable manner.
+Distribute jobs across workers, with retrials, inspecting logs and much more.  
 It's a great choice for distributed, event driven systems with fallible units of work.
 
 ## Relation to BullMQ
@@ -25,16 +25,16 @@ migrate to Rust based BullRS producers and workers.
 
 ## BullRS
 BullRS is async and builds on the tokio runtime. I always target interoperability
-with the newest BullMQ version, but most things are expected to be backwards compatible
-in both ways.
+with the newest BullMQ version, but usually different BullMQ worker/producers are compatible
+across many versions.
 
 Priorities:
 - 1. Reliability
     - everything should work exactly as expected and no job should ever be lost
 - 2. Ease of use
-    - beginner friendly, sensible defaults and hard to misuse
+    - beginner friendly, sensible defaults and hard to misuse API
 - 3. Performance
-    - Minimize roundtrips to Redis
+    - reduce round trips, maximize concurrence
 
 ## Features
 BullMQ has many features. The list below keeps track, which of them are yet to be imeplemented:
@@ -55,3 +55,4 @@ BullMQ has many features. The list below keeps track, which of them are yet to b
     - [ ] Job Hiearchy
 - Queue
     - [x] Pause / unpause entire queue
+    - [x] Obliterate queue

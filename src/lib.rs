@@ -19,5 +19,7 @@ pub use progress::*;
 pub use queue::{InvalidQueueName, PreparedFlowJob, Queue, QueueName};
 pub use worker::{Worker, WorkerArgs};
 
+pub use deadpool_redis;
+
 // stable: 437
 // nightly: 471

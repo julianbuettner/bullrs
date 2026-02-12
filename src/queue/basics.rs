@@ -24,6 +24,10 @@ impl<D, R> Queue<D, R> {
         Worker::new(self.pool.clone(), self.name.clone(), worker_args)
     }
 
+    /// Stop processing jobs of a queue. Jobs already picked up will be
+    /// continued until completed or failed and delayed. Keep in mind,
+    /// that workers might pre-pull a few jobs depending on concurrency
+    /// settings. Those will be processed too.
     pub async fn pause(&self) -> Result<(), PauseResumeError> {
         let p = Pause {
             queue: &self.name,
@@ -33,6 +37,8 @@ impl<D, R> Queue<D, R> {
         p.call(&mut con).await?;
         Ok(())
     }
+
+    /// Continue processing jobs of a queue.
     pub async fn resume(&self) -> Result<(), PauseResumeError> {
         let p = Pause {
             queue: &self.name,
