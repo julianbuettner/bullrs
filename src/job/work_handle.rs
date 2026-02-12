@@ -9,7 +9,10 @@ use log::warn;
 use serde::Serialize;
 use tokio::{sync::OwnedSemaphorePermit, task::JoinHandle};
 
-use crate::ProgressPercent;
+use crate::{
+    ProgressPercent,
+    error::{AddLogError, BasicRedisError, MoveToFinishedErr, UpdateProgressError},
+};
 use crate::{
     job::JobOptions,
     luacommands::{
@@ -72,7 +75,12 @@ impl<D, R> JobWorkHandle<D, R> {
     pub fn name(&self) -> &str {
         &self.name
     }
-    async fn finished<'a>(mut self, result: Result<&'a R, &'a str>)
+    /// Mark a job as done or failed, depending on the `Result` value.
+    /// If a job is marked as failed, it might be retried, depending on the Job options.
+    pub async fn finished<'a>(
+        mut self,
+        result: Result<&'a R, &'a str>,
+    ) -> Result<(), MoveToFinishedErr>
     where
         R: Serialize,
     {
@@ -101,46 +109,52 @@ impl<D, R> JobWorkHandle<D, R> {
             },
             job_fields: None,
         };
-        let mut con = self.pool.get().await.expect("TODO");
-        move_to_finished.call(&mut con).await.expect("TODO");
+        let mut con = self.pool.get().await?;
+        move_to_finished.call(&mut con).await
     }
-    pub async fn done(self, value: &R)
+    /// Mark job as done, by providing an `Ok()` value.
+    pub async fn done(self, value: &R) -> Result<(), MoveToFinishedErr>
     where
         R: Serialize,
     {
         self.finished(Ok(value)).await
     }
-    pub async fn failed(self, error: &str)
+    /// Mark job as failed, by providing an `Err()` value.
+    /// Depending on the job options, a job might be rescheduled,
+    pub async fn failed(self, error: &str) -> Result<(), MoveToFinishedErr>
     where
         R: Serialize,
     {
         self.finished(Err(error)).await
     }
-    pub async fn log(&self, log_line: &str) {
+    /// Add a log line without timestamp, get the number of log lines.
+    pub async fn log(&self, log_line: &str) -> Result<usize, AddLogError> {
         let add_log = AddLog {
             queue: &self.queue_name,
             job_id: &self.id,
             log_line,
             keep_logs: None,
         };
-        let mut con = self.pool.get().await.expect("TODO");
-        add_log.call(&mut con).await.expect("TODO");
+        let mut con = self.pool.get().await?;
+        Ok(add_log.call(&mut con).await?.new_count)
     }
-    pub async fn log_ts(&self, log_line: &str) {
+    /// Add a log line with timestamp, get the number of log lines.
+    pub async fn log_ts(&self, log_line: &str) -> Result<usize, AddLogError> {
         let new_log = format!(
             "{} {log_line}",
             humantime::format_rfc3339_millis(SystemTime::now())
         );
         self.log(&new_log).await
     }
-    pub async fn set_progress(&self, progress: ProgressPercent) {
+    /// Set the progress of the current job in percent.
+    pub async fn set_progress(&self, progress: ProgressPercent) -> Result<(), UpdateProgressError> {
         let update_progress = UpdateProgess {
             queue: &self.queue_name,
             job_id: &self.id,
             progress,
         };
-        let mut con = self.pool.get().await.expect("TODO");
-        update_progress.call(&mut con).await.expect("TODO");
+        let mut con = self.pool.get().await?;
+        update_progress.call(&mut con).await
     }
 }
 

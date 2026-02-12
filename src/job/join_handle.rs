@@ -3,8 +3,9 @@ use std::marker::PhantomData;
 
 use crate::queue::QueueName;
 
-/// Can be obtained by enqueuing a job and can be used for awaiting
-/// it's result or changing it's parameters and data as long as it is not yet processed.
+/// This will be returned when enqueing a job.
+/// It can be used for awaiting it's return value, chaging it's parameters
+/// (at least before being picked up by a worker) or even to cancel the job.
 pub struct JobJoinHandle<D, R> {
     queue_name: QueueName,
     pool: Pool,

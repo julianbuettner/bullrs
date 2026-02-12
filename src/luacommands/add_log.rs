@@ -13,7 +13,7 @@ pub struct AddLog<'a> {
 }
 
 pub struct AddLogOk {
-    new_count: usize,
+    pub new_count: usize,
 }
 
 impl<'a> InvokeLuaScript for AddLog<'a> {

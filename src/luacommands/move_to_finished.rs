@@ -92,7 +92,7 @@ pub struct RateLimiter {
 }
 
 #[derive(Debug, Error)]
-pub enum MoveToFinishedErrX {
+pub enum MoveToFinishedErrXXXXXXXXX {
     /// Missing key
     #[error("job has not been found")]
     MissingKey,

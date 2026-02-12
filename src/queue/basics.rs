@@ -12,7 +12,11 @@ use crate::{
 };
 
 impl<D, R> Queue<D, R> {
-    /// Get a worker for processing jobs of this queue
+    /// Create a worker instance for processing jobs of this queue.
+    /// This will immediately start preloading jobs to be processed.
+    ///
+    /// Note that for picking up jobs, D must implement [serde::DeserializeOwned]
+    /// and R must implement [serde::Serialize].
     pub fn worker(&self, worker_args: WorkerArgs) -> Worker<D, R>
     where
         R: Send + 'static,
@@ -27,7 +31,7 @@ impl<D, R> Queue<D, R> {
     /// Stop processing jobs of a queue. Jobs already picked up will be
     /// continued until completed or failed and delayed. Keep in mind,
     /// that workers might pre-pull a few jobs depending on concurrency
-    /// settings. Those will be processed too.
+    /// settings. Those will still be processed as well.
     pub async fn pause(&self) -> Result<(), PauseResumeError> {
         let p = Pause {
             queue: &self.name,
@@ -49,6 +53,8 @@ impl<D, R> Queue<D, R> {
         Ok(())
     }
 
+    /// Add a job with given options.
+    /// Go to [JobOptions] for documentation on the available options and default values.
     pub async fn add_with(
         &self,
         job_name: &str,
@@ -86,6 +92,7 @@ impl<D, R> Queue<D, R> {
         c.call(&mut con).await
     }
 
+    /// Add a job with default options. See documentation of [JobOptions] for default values.
     pub async fn add(&self, job_name: &str, data: &D) -> Result<String, AddJobErr>
     where
         D: Serialize,
@@ -94,10 +101,11 @@ impl<D, R> Queue<D, R> {
         self.add_with(job_name, data, &job_options).await
     }
 
-    /// Completely remove everything about this queue.
-    /// It makes multiple trips to Redis, as it is unfeasable of
-    /// deleting potentially millions of jobs in a single lua
-    /// script execution.
+    /**
+    Wipe this queue from existence.
+    This means all jobs, pending, done, failed, etc, as well as all markers and meta information.
+    It makes multiple trips to Redis, as it is unfeasable of deleting potentially millions of jobs in a single lua script execution.
+    */
     pub async fn obliterate(self) -> Result<(), ObliterateError> {
         self.pause().await?;
         let mut con = self.pool.get().await?;
