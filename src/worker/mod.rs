@@ -6,6 +6,7 @@ use std::{
     },
     time::Duration,
 };
+use tracing::{Instrument, Level, info, span};
 
 use deadpool_redis::Pool;
 use serde::de::DeserializeOwned;
@@ -101,31 +102,49 @@ where
     D: Send + Sync + 'static + DeserializeOwned + std::fmt::Debug,
 {
     pub(crate) fn new(pool: Pool, queue_name: QueueName, args: WorkerArgs) -> Self {
-        let uid = nanoid!();
+        let uid = nanoid!(8);
+        let worker_span = span!(
+            Level::ERROR,
+            "worker",
+            worker = uid,
+            queue = queue_name.as_str()
+        );
+        let _guard = worker_span.enter();
         let semaphore = Arc::new(Semaphore::new(args.parallel_jobs));
         let (tx, job_receiver) = channel(args.parallel_jobs);
         let stalled_after = Arc::new(RwLock::new(args.stalled_after));
         let max_stalled_before_failed = Arc::new(RwLock::new(args.max_stalled_before_failed));
         let cooldown_after_error = args.cooldown_after_error;
 
+        info!("Set up async tasks for worker");
         let job_fetch_handles: Vec<_> = (0..args.parallel_connections)
             .map(|_| {
-                tokio::spawn(pull_job_thread(
-                    pool.clone(),
-                    queue_name.clone(),
-                    tx.clone(),
-                    semaphore.clone(),
-                    args.cooldown_after_error,
-                ))
+                let pull_worker_id = nanoid!(5);
+                let pull_span = span!(Level::ERROR, "pull-jobs", pull_worker_id);
+                tokio::spawn(
+                    pull_job_thread(
+                        pool.clone(),
+                        queue_name.clone(),
+                        tx.clone(),
+                        semaphore.clone(),
+                        args.cooldown_after_error,
+                        pull_worker_id,
+                    )
+                    .instrument(pull_span.clone()),
+                )
             })
             .collect();
 
-        let stalled_to_wait_handle = tokio::spawn(stalled_to_wait(
-            pool.clone(),
-            queue_name.clone(),
-            stalled_after.clone(),
-            max_stalled_before_failed.clone(),
-        ));
+        let stalled_to_wait_span = span!(Level::TRACE, "stalled-to-wait");
+        let stalled_to_wait_handle = tokio::spawn(
+            stalled_to_wait(
+                pool.clone(),
+                queue_name.clone(),
+                stalled_after.clone(),
+                max_stalled_before_failed.clone(),
+            )
+            .instrument(stalled_to_wait_span),
+        );
 
         Self {
             uid,

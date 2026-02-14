@@ -5,13 +5,13 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use deadpool_redis::Pool;
-use log::warn;
 use serde::Serialize;
 use tokio::{sync::OwnedSemaphorePermit, task::JoinHandle};
+use tracing::warn;
 
 use crate::{
     ProgressPercent,
-    error::{AddLogError, BasicRedisError, MoveToFinishedErr, UpdateProgressError},
+    error::{AddLogError, MoveToFinishedErr, UpdateProgressError},
 };
 use crate::{
     job::JobOptions,

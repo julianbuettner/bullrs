@@ -1,4 +1,3 @@
-use log::trace;
 use nanoid::nanoid;
 use std::{
     cmp,
@@ -6,6 +5,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+use tracing::{Instrument, Level, debug, info, span, trace, warn};
 
 use chrono::{DateTime, Utc};
 use deadpool_redis::{Pool, PoolError};
@@ -33,13 +33,14 @@ pub async fn pull_job_thread<D, R>(
     job_sender: Sender<Result<JobWorkHandle<D, R>, WorkerError>>,
     semaphore: Arc<Semaphore>,
     failure_cooldown: Duration,
+    pull_worker_id: String,
 ) where
     D: DeserializeOwned + std::fmt::Debug,
 {
     let (marker_send, mut marker_recv) = mpsc::channel(1);
-    spawn(poll_marker(pool.clone(), queue_name.clone(), marker_send));
+    let poll_span = span!(Level::TRACE, "poll-marker");
+    spawn(poll_marker(pool.clone(), queue_name.clone(), marker_send).instrument(poll_span));
 
-    let worker_id = nanoid!();
     let mut counter: usize = 0;
     loop {
         let permit = semaphore
@@ -50,30 +51,30 @@ pub async fn pull_job_thread<D, R>(
         let start = Instant::now();
         let con = pool.get().await;
         if let Err(e) = con {
+            warn!("Failed to get Redis connection: {}", e);
             let fatal = match &e {
                 &PoolError::Closed => true,
                 _ => false,
             };
             if job_sender.send(Err(e.into())).await.is_err() {
                 // Received is closed anyways. Terminate.
+                warn!("Receiver dropped, terminate");
                 return;
             }
             if fatal {
+                warn!("Error is fatal, terminate");
                 return;
             }
             sleep(failure_cooldown).await;
             continue;
         }
         let mut con = con.unwrap();
-        trace!(
-            "Worker thread {worker_id} acquired connection after {:?}",
-            start.elapsed()
-        );
-        let lock_token = format!("{worker_id}-{counter}");
+        trace!("Acquired connection after {:?}", start.elapsed());
+        let lock_token = format!("{pull_worker_id}-{counter}");
         counter += 1;
         let mts = MoveToActive::<D> {
             queue: &queue_name,
-            worker_id: &worker_id,
+            worker_id: &pull_worker_id,
             limiter: RateLimiter {
                 max: 0,
                 duration: Duration::from_millis(0),
@@ -83,49 +84,48 @@ pub async fn pull_job_thread<D, R>(
             phantom: PhantomData, // TODO without
         };
         let get_job = mts.call(&mut con).await.unwrap();
-        let sleep_timer: Option<Duration> =
-            match get_job {
-                MoveToActiveOk::JobData { id, data } => {
-                    let lock_refresh_handle = tokio::spawn(lock_refresh());
-                    trace!(
-                        "Worker thread {worker_id} fetched job {id} from queue {}.",
-                        queue_name.as_str()
-                    );
-                    let _closed = job_sender
-                        .send(Ok(JobWorkHandle::new(
-                            queue_name.clone(),
-                            pool.clone(),
-                            id,
-                            data.name,
-                            permit,
-                            data.data,
-                            lock_refresh_handle,
-                            lock_token.clone(),
-                            worker_id.clone(),
-                        )))
-                        .await
-                        .is_err();
-                    // TODO move back to waiting if `closed`
-                    None
-                }
-                MoveToActiveOk::Delay { delay } => Some(delay),
-                MoveToActiveOk::WaitUntil { timestamp } => Some(Duration::from_millis(
+        let sleep_timer: Option<Duration> = match get_job {
+            MoveToActiveOk::JobData { id, data } => {
+                let lock_refresh_handle = tokio::spawn(lock_refresh());
+                info!(
+                    "Fetched job {id}, preload channel has capacity of {}",
+                    job_sender.capacity()
+                );
+                let _closed = job_sender
+                    .send(Ok(JobWorkHandle::new(
+                        queue_name.clone(),
+                        pool.clone(),
+                        id,
+                        data.name,
+                        permit,
+                        data.data,
+                        lock_refresh_handle,
+                        lock_token.clone(),
+                        pull_worker_id.clone(),
+                    )))
+                    .await
+                    .is_err();
+                // TODO move back to waiting if `closed`
+                None
+            }
+            MoveToActiveOk::Delay { delay } => Some(delay),
+            MoveToActiveOk::WaitUntil { timestamp } => {
+                Some(Duration::from_millis(
                     cmp::max(0, (timestamp - Utc::now()).num_milliseconds()) as u64,
-                )),
-                MoveToActiveOk::NothingToDo => Some(Duration::from_secs(10)),
-            };
+                ))
+            }
+            MoveToActiveOk::NothingToDo => Some(Duration::from_secs(10)),
+        };
         if let Some(sleep_timer) = sleep_timer {
-            trace!(
-                "Worker thread {worker_id} equeued nothing, sleep for {:?}",
-                sleep_timer
-            );
+            trace!("Nothing in queue, sleep for {:?}", sleep_timer);
             // Sleep until known job is ready, but also wake up if new job comes in
             let timeout = sleep(sleep_timer);
             let marker = marker_recv.recv();
             tokio::select! {
                 _ = timeout => (),
                 event = marker => {
-                    let (_member, _score) = event.expect("TODO");
+                    let (job_id, ts) = event.expect("poll never terminates first");
+                    debug!("Received marker {} {}", job_id, ts);
                 },
             };
         }
@@ -141,11 +141,12 @@ async fn poll_marker(
     loop {
         if sender.is_closed() {
             // Receiver is dropped, terminate gracefully
+            info!("Terminate gracefully");
             return;
         }
         let con = pool.get().await;
         if let Err(e) = con {
-            trace!("Marker poll could not get connection from pool: {:?}", e);
+            warn!("Marker poll could not get connection from pool: {:?}", e);
             sleep(Duration::from_secs(1)).await;
             continue;
         }
@@ -153,7 +154,7 @@ async fn poll_marker(
         let res: Result<Option<(String, String, i64)>, RedisError> =
             con.bzpopmin(&marker_name, 30.).await;
         if let Err(e) = res {
-            trace!("Marker poll failed to get next timestamp: {:?}", e);
+            warn!("Marker poll failed to get next timestamp: {:?}", e);
             sleep(Duration::from_secs(1)).await;
             continue;
         }
@@ -164,7 +165,7 @@ async fn poll_marker(
         let (_key, job_id, timestamp) = res.unwrap();
         let ts: Option<DateTime<Utc>> = DateTime::from_timestamp_millis(timestamp);
         if ts.is_none() {
-            trace!("Marker poll failed to parse next timestamp: {}", timestamp);
+            warn!("Marker poll failed to parse next timestamp: {}", timestamp);
             sleep(Duration::from_secs(1)).await;
             continue;
         }

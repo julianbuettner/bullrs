@@ -17,7 +17,21 @@ The documentation is hosted on [docs.rs/bullrs](https://docs.rs/bullrs/latest/bu
 
 ## Example
 ```
-TODO
+use bullrs::deadpool_redis::{self, Pool, Runtime};
+use bullrs::{JobOptions, ProgressPercent, Queue, QueueName, Worker, WorkerArgs};
+
+let pool_config = Config::from_url("redis://127.0.0.1/");
+let pool = pool_config.create_pool(None).unwrap();
+let queue_name = QueueName::new("my-queue").unwrap();
+
+let queue: Queue<i64, i64> = Queue::new(pool, queue_name);
+queue.add("My Job", 123);
+
+let worker = queue.worker();
+// Job is Option<Result<Job, bullrs::BullrsError>>
+let next_job = worker.next().await.unwrap().unwrap();
+next_job.log_ts("Starting calculation...").await.unwrap();
+next_job.
 ```
 
 ## Features (WIP)

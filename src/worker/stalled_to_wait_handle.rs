@@ -2,8 +2,8 @@ use std::{sync::Arc, time::Duration};
 
 use chrono::Utc;
 use deadpool_redis::Pool;
-use log::trace;
 use tokio::{sync::RwLock, time::sleep};
+use tracing::{info, warn};
 
 use crate::{
     luacommands::{InvokeLuaScript, MoveStalledJobsToWait},
@@ -24,7 +24,7 @@ pub async fn stalled_to_wait(
         let max_stalled_before_failed: usize = *max_stalled_before_failed.read().await;
         let con = pool.get().await;
         if let Err(e) = con {
-            trace!("Failed to get redis connection from pool for stalled-to-wait: {e:?}");
+            warn!("Failed to get redis connection from pool for stalled-to-wait: {e:?}");
             sleep(stalled_after / 2).await;
             continue;
         };
@@ -37,17 +37,18 @@ pub async fn stalled_to_wait(
         };
         let res = stw.call(&mut con).await;
         if let Err(e) = res {
-            trace!("Failed to moved stalled jobs to wait: {e:?}");
+            warn!("Failed to moved stalled jobs to wait: {e:?}");
             sleep(stalled_after / 2).await;
             continue;
         }
         let res = res.unwrap();
         if !res.is_empty() {
-            trace!(
+            info!(
                 "The following jobs of queue {} stalled: {:?}",
                 queue_name.as_str(),
                 res
             );
         }
+        sleep(stalled_after / 2).await;
     }
 }
