@@ -1,23 +1,12 @@
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use lazy_static::lazy_static;
-use redis::{RedisResult, Script, ScriptInvocation, aio::ConnectionLike};
 
-use crate::{job::JobId, queue::QueueName};
-
-macro_rules! load_script {
-    ($filename:expr) => {
-        Script::new(include_str!(concat!(env!("OUT_DIR"), "/lua/", $filename)))
-    };
-}
-
-lazy_static! {
-    pub static ref ADD_LOG: Script = load_script!("addLog-2.lua");
-    pub static ref ADD_STANDARD_JOB: Script = load_script!("addStandardJob-8.lua");
-    pub static ref UPDATE_DATA: Script = load_script!("updateData-1.lua");
-    static ref MOVE_STALLED_JOBS_TO_WAIT: Script = load_script!("moveStalledJobsToWait-9.lua");
-}
+use crate::{
+    error::MoveStalledToWaitError,
+    luacommands::{InvokeLuaScript, MOVE_STALLED_JOBS_TO_WAIT},
+    queue::QueueName,
+};
 
 pub struct MoveStalledJobsToWait<'a> {
     /// Name of the queue we are doing maintenance work (stalled jobs to waiting) for
@@ -33,16 +22,17 @@ pub struct MoveStalledJobsToWait<'a> {
     pub max_duration: Duration,
 }
 
-impl<'a> MoveStalledJobsToWait<'a> {
-    pub async fn call<'b>(
-        self,
-        con: &mut impl ConnectionLike,
-    ) -> RedisResult<(Vec<String>, Vec<String>)> {
-        MOVE_STALLED_JOBS_TO_WAIT
+impl<'a> InvokeLuaScript for MoveStalledJobsToWait<'a> {
+    type RedisOutput = Vec<String>;
+    type DomainOk = Vec<String>;
+    type DomainErr = MoveStalledToWaitError;
+
+    fn generate_invocation(&self) -> Result<redis::ScriptInvocation<'static>, Self::DomainErr> {
+        let mut invocation = MOVE_STALLED_JOBS_TO_WAIT.prepare_invoke();
+        invocation
             .key(self.queue.stalled())
             .key(self.queue.wait())
             .key(self.queue.active())
-            .key(self.queue.failed())
             .key(self.queue.stalled_check())
             .key(self.queue.meta())
             .key(self.queue.paused())
@@ -51,8 +41,11 @@ impl<'a> MoveStalledJobsToWait<'a> {
             .arg(self.max_stalled_before_failed)
             .arg(self.queue.prefix())
             .arg(self.timestamp.timestamp_millis())
-            .arg(self.max_duration.as_millis() as u64)
-            .invoke_async(con)
-            .await
+            .arg(self.max_duration.as_millis() as u64);
+        Ok(invocation)
+    }
+
+    fn map_value(&self, value: Self::RedisOutput) -> Result<Self::DomainOk, Self::DomainErr> {
+        Ok(value)
     }
 }

@@ -51,56 +51,47 @@ local opts = cmsgpack.unpack(ARGV[3])
 --- @include "includes/prepareJobForProcessing"
 --- @include "includes/promoteDelayedJobs"
 
-local target, isPausedOrMaxed = getTargetQueueList(KEYS[9], activeKey, waitKey, KEYS[8])
+local target, isPausedOrMaxed, rateLimitMax, rateLimitDuration = getTargetQueueList(KEYS[9],
+    activeKey, waitKey, KEYS[8])
 
 -- Check if there are delayed jobs that we can move to wait.
 local markerKey = KEYS[11]
-promoteDelayedJobs(delayedKey, markerKey, target, KEYS[3], eventStreamKey, ARGV[1], ARGV[2], KEYS[10], isPausedOrMaxed)
+promoteDelayedJobs(delayedKey, markerKey, target, KEYS[3], eventStreamKey, ARGV[1],
+                   ARGV[2], KEYS[10], isPausedOrMaxed)
 
-local maxJobs = tonumber(opts["limiter"] and opts["limiter"]["max"])
+local maxJobs = tonumber(rateLimitMax or (opts['limiter'] and opts['limiter']['max']))
 local expireTime = getRateLimitTTL(maxJobs, rateLimiterKey)
 
 -- Check if we are rate limited first.
-if expireTime > 0 then
-	return { 0, 0, expireTime, 0 }
-end
+if expireTime > 0 then return {0, 0, expireTime, 0} end
 
 -- paused or maxed queue
-if isPausedOrMaxed then
-	return { 0, 0, 0, 0 }
-end
+if isPausedOrMaxed then return {0, 0, 0, 0} end
+
+local limiterDuration = (opts['limiter'] and opts['limiter']['duration']) or rateLimitDuration
 
 -- no job ID, try non-blocking move from wait to active
 local jobId = rcall("RPOPLPUSH", waitKey, activeKey)
 
 -- Markers in waitlist DEPRECATED in v5: Will be completely removed in v6.
 if jobId and string.sub(jobId, 1, 2) == "0:" then
-	rcall("LREM", activeKey, 1, jobId)
-	jobId = rcall("RPOPLPUSH", waitKey, activeKey)
+    rcall("LREM", activeKey, 1, jobId)
+    jobId = rcall("RPOPLPUSH", waitKey, activeKey)
 end
 
 if jobId then
-	return prepareJobForProcessing(ARGV[1], rateLimiterKey, eventStreamKey, jobId, ARGV[2], maxJobs, markerKey, opts)
+    return prepareJobForProcessing(ARGV[1], rateLimiterKey, eventStreamKey, jobId, ARGV[2],
+                                   maxJobs, limiterDuration, markerKey, opts)
 else
-	jobId = moveJobFromPrioritizedToActive(KEYS[3], activeKey, KEYS[10])
-	if jobId then
-		return prepareJobForProcessing(
-			ARGV[1],
-			rateLimiterKey,
-			eventStreamKey,
-			jobId,
-			ARGV[2],
-			maxJobs,
-			markerKey,
-			opts
-		)
-	end
+    jobId = moveJobFromPrioritizedToActive(KEYS[3], activeKey, KEYS[10])
+    if jobId then
+        return prepareJobForProcessing(ARGV[1], rateLimiterKey, eventStreamKey, jobId, ARGV[2],
+                                       maxJobs, limiterDuration, markerKey, opts)
+    end
 end
 
 -- Return the timestamp for the next delayed job if any.
 local nextTimestamp = getNextDelayedTimestamp(delayedKey)
-if nextTimestamp ~= nil then
-	return { 0, 0, 0, nextTimestamp }
-end
+if nextTimestamp ~= nil then return {0, 0, 0, nextTimestamp} end
 
-return { 0, 0, 0, 0 }
+return {0, 0, 0, 0}

@@ -1,0 +1,21 @@
+{
+  "name": "bullboard",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/express": "^5.0.3"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@bull-board/api": "^6.11.0",
+    "@bull-board/express": "^6.11.0",
+    "bull": "^4.16.5",
+    "bullmq": "^5.56.3",
+    "express": "^5.1.0",
+    "ioredis": "^5.6.1"
+  }
+}

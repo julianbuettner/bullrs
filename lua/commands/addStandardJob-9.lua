@@ -20,9 +20,10 @@
       KEYS[3] 'meta'
       KEYS[4] 'id'
       KEYS[5] 'completed'
-      KEYS[6] 'active'
-      KEYS[7] events stream key
-      KEYS[8] marker key
+      KEYS[6] 'delayed'
+      KEYS[7] 'active'
+      KEYS[8] events stream key
+      KEYS[9] marker key
 
       ARGV[1] msgpacked arguments array
             [1]  key prefix,
@@ -30,11 +31,10 @@
             [3]  name
             [4]  timestamp
             [5]  parentKey?
-            [6]  waitChildrenKey key.
-            [7]  parent dependencies key.
-            [8]  parent? {id, queueKey}
-            [9]  repeat job key
-            [10] deduplication key
+            [6]  parent dependencies key.
+            [7]  parent? {id, queueKey}
+            [8]  repeat job key
+            [9] deduplication key
 
       ARGV[2] Json stringified job data
       ARGV[3] msgpacked options
@@ -43,7 +43,7 @@
         jobId  - OK
         -5     - Missing parent key
 ]]
-local eventsKey = KEYS[7]
+local eventsKey = KEYS[8]
 
 local jobId
 local jobIdKey
@@ -55,9 +55,9 @@ local data = ARGV[2]
 local opts = cmsgpack.unpack(ARGV[3])
 
 local parentKey = args[5]
-local parent = args[8]
-local repeatJobKey = args[9]
-local deduplicationKey = args[10]
+local parent = args[7]
+local repeatJobKey = args[8]
+local deduplicationKey = args[9]
 local parentData
 
 -- Includes
@@ -79,7 +79,7 @@ local jobCounter = rcall("INCR", KEYS[4])
 local metaKey = KEYS[3]
 local maxEvents = getOrSetMaxEvents(metaKey)
 
-local parentDependenciesKey = args[7]
+local parentDependenciesKey = args[6]
 local timestamp = args[4]
 if args[2] == "" then
     jobId = jobCounter
@@ -94,8 +94,8 @@ else
     end
 end
 
-local deduplicationJobId = deduplicateJob(opts['de'], jobId,
-  deduplicationKey, eventsKey, maxEvents)
+local deduplicationJobId = deduplicateJob(opts['de'], jobId, KEYS[6],
+  deduplicationKey, eventsKey, maxEvents, args[1])
 if deduplicationJobId then
   return deduplicationJobId
 end
@@ -104,11 +104,11 @@ end
 storeJob(eventsKey, jobIdKey, jobId, args[3], ARGV[2], opts, timestamp,
          parentKey, parentData, repeatJobKey)
 
-local target, isPausedOrMaxed = getTargetQueueList(metaKey, KEYS[6], KEYS[1], KEYS[2])
+local target, isPausedOrMaxed = getTargetQueueList(metaKey, KEYS[7], KEYS[1], KEYS[2])
 
 -- LIFO or FIFO
 local pushCmd = opts['lifo'] and 'RPUSH' or 'LPUSH'
-addJobInTargetList(target, KEYS[8], pushCmd, isPausedOrMaxed, jobId)
+addJobInTargetList(target, KEYS[9], pushCmd, isPausedOrMaxed, jobId)
 
 -- Emit waiting event
 rcall("XADD", eventsKey, "MAXLEN", "~", maxEvents, "*", "event", "waiting",

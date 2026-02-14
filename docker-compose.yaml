@@ -1,16 +1,21 @@
 ---
-version: '3.8'
-
 name: bullmq-rs
 
 services:
   redis:
-    image: redis:7.2
+    image: docker.io/redis:8.2
     ports:
       - "6379:6379"
     volumes:
       - redis-data:/data
     restart: unless-stopped
+
+  bullboard:
+    build: ./bullboardserver
+    environment:
+      REDIS_URL: redis://redis/
+    ports:
+      - "3000:3000"
 
 volumes:
   redis-data:

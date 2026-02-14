@@ -1,53 +1,56 @@
 # BullRS
 
-A BullMQ compatible message queue for highly reliable job processing.
+BullRS is a BullMQ compatible message queue for highly reliable job processing.
 
-## Why use BullRS or BullMQ
-BullMQ and BullRS use Redis to manage jobs in a highly reliable and scalable manner,
-distribute them across workers, with retrials, inspectability and much more.  
+BullRS uses Redis to manage jobs in a highly reliable and scalable manner.
+Distribute jobs across workers, with retrials, result values, inspecting logs per job and much more.  
 It's a great choice for distributed, event driven systems with fallible units of work.
 
-Some things I love about BullMQ:
-- Leveraging the efficiency and reliability of Redis
-- Retrial of jobs, with configured backoff
-- Taking a look at failed and completed jobs, with logs and failure reason
-- Ease of use
+BullRS is async and builds on the tokio runtime.
 
-## Relation to BullMQ
-This library can be used completely without a BullMQ instance. However, it works
-exactly the same way, thereby using established, well tested
-patterns and it also reuses the same lua of BullMQ to be executed on the
-Redis server. It also ensures interoperability with BullMQ.
-Projects having producers and workers in BullMQ (TypeScript / JavaScript) can slowly
-migrate to Rust based BullRS producers and workers.
+Priorities:
+- 1. **Reliability** - everything should work exactly as expected and no job should ever be lost
+- 2. **Ease of use** - beginner friendly, sensible defaults and hard to misuse API
+- 3. **Performance** - reduce round trips, maximize concurrence
 
-## BullRS
-BullRS is async and builds on the tokio runtime. We always target interoperability
-with the newest BullMQ version, but most things are expected to be backwards compatible
-in both ways.
+The documentation is hosted on [docs.rs/bullrs](https://docs.rs/bullrs/latest/bullrs/).
 
-Priorities of our values:
-- 1. Reliability
-    - everything should work exactly as expected and no job should ever be dropped
-- 2. Ease of use
-    - beginner friendly, sensible defaults and hard to misuse
-- 3. Performance
-    - Minimize roundtrips to Redis
+## Example
+```
+use bullrs::deadpool_redis::{self, Pool, Runtime};
+use bullrs::{JobOptions, ProgressPercent, Queue, QueueName, Worker, WorkerArgs};
 
-## Features
-BullMQ has many features. The list below keeps track, which of them are yet to be imeplemented:
+let pool_config = Config::from_url("redis://127.0.0.1/");
+let pool = pool_config.create_pool(None).unwrap();
+let queue_name = QueueName::new("my-queue").unwrap();
+
+let queue: Queue<i64, i64> = Queue::new(pool, queue_name);
+queue.add("My Job", 123);
+
+let worker = queue.worker();
+// Job is Option<Result<Job, bullrs::BullrsError>>
+let next_job = worker.next().await.unwrap().unwrap();
+next_job.log_ts("Starting calculation...").await.unwrap();
+next_job.
+```
+
+## Features (WIP)
+BullMQ has many features. The list below keeps track, which of them are imeplemented in BullRS:
 
 - Managing Jobs
     - [x] Adding immediate Jobs, LIFO and FIFO
     - [ ] Awaiting Job Results
     - [ ] Remove Jobs
-    - [ ] Adding delayed Jobs
-    - [ ] Adding priority Jobs
+    - [x] Adding delayed Jobs
+    - [x] Adding priority Jobs
     - [ ] Repeatable Jobs
     - [ ] Job Hiearchy
 - Worker
     - [x] Dequeue immediate Jobs
     - [x] Requeue stalled jobs (e.g. worker went offline during processing)
-    - [ ] Retry jobs with backoff
+    - [x] Retry jobs with backoff
     - [ ] Repeatable Jobs
     - [ ] Job Hiearchy
+- Queue
+    - [x] Pause / unpause entire queue
+    - [x] Obliterate queue

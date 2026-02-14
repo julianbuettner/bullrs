@@ -9,10 +9,11 @@
       KEYS[2] 'meta'
       KEYS[3] 'id'
       KEYS[4] 'prioritized'
-      KEYS[5] 'completed'
-      KEYS[6] 'active'
-      KEYS[7] events stream key
-      KEYS[8] 'pc' priority counter
+      KEYS[5] 'delayed'
+      KEYS[6] 'completed'
+      KEYS[7] 'active'
+      KEYS[8] events stream key
+      KEYS[9] 'pc' priority counter
 
       ARGV[1] msgpacked arguments array
             [1]  key prefix,
@@ -20,11 +21,10 @@
             [3]  name
             [4]  timestamp
             [5]  parentKey?
-            [6]  waitChildrenKey key.
-            [7]  parent dependencies key.
-            [8]  parent? {id, queueKey}
-            [9]  repeat job key
-            [10] deduplication key
+            [6]  parent dependencies key.
+            [7]  parent? {id, queueKey}
+            [8]  repeat job key
+            [9] deduplication key
 
       ARGV[2] Json stringified job data
       ARGV[3] msgpacked options
@@ -37,10 +37,10 @@ local metaKey = KEYS[2]
 local idKey = KEYS[3]
 local priorityKey = KEYS[4]
 
-local completedKey = KEYS[5]
-local activeKey = KEYS[6]
-local eventsKey = KEYS[7]
-local priorityCounterKey = KEYS[8]
+local completedKey = KEYS[6]
+local activeKey = KEYS[7]
+local eventsKey = KEYS[8]
+local priorityCounterKey = KEYS[9]
 
 local jobId
 local jobIdKey
@@ -52,9 +52,9 @@ local data = ARGV[2]
 local opts = cmsgpack.unpack(ARGV[3])
 
 local parentKey = args[5]
-local parent = args[8]
-local repeatJobKey = args[9]
-local deduplicationKey = args[10]
+local parent = args[7]
+local repeatJobKey = args[8]
+local deduplicationKey = args[9]
 local parentData
 
 -- Includes
@@ -75,7 +75,7 @@ local jobCounter = rcall("INCR", idKey)
 
 local maxEvents = getOrSetMaxEvents(metaKey)
 
-local parentDependenciesKey = args[7]
+local parentDependenciesKey = args[6]
 local timestamp = args[4]
 if args[2] == "" then
     jobId = jobCounter
@@ -90,8 +90,8 @@ else
     end
 end
 
-local deduplicationJobId = deduplicateJob(opts['de'], jobId,
-  deduplicationKey, eventsKey, maxEvents)
+local deduplicationJobId = deduplicateJob(opts['de'], jobId, KEYS[5],
+  deduplicationKey, eventsKey, maxEvents, args[1])
 if deduplicationJobId then
   return deduplicationJobId
 end
