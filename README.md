@@ -15,6 +15,56 @@ Priorities:
 
 The documentation is hosted on [docs.rs/bullrs](https://docs.rs/bullrs/latest/bullrs/).
 
+## Example
+
+A queue that squares `f32` values. The producer and worker share the same queue instance
+here. In production they often run in separate processes.
+
+```rust,no_run
+use bullrs::{Queue, QueueName, WorkerArgs};
+use deadpool_redis::{Config, Runtime};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Input {
+    value: f32,
+}
+
+// Output needs Debug + Clone in addition to the serde traits.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Output {
+    result: f32,
+}
+
+#[tokio::main]
+async fn main() {
+    let pool = Config::from_url("redis://127.0.0.1/")
+        .create_pool(Some(Runtime::Tokio1))
+        .unwrap();
+
+    let queue = Queue::<Input, Output>::new(
+        pool,
+        QueueName::new("square-queue".to_string()).unwrap(),
+    );
+
+    // Enqueue a job and keep the handle to await its result later.
+    let handle = queue
+        .add("square", &Input { value: 3.1 })
+        .await
+        .unwrap();
+
+    // Pull the next job and process it.
+    let mut worker = queue.worker(WorkerArgs::default());
+    let job = worker.next().await.unwrap().unwrap();
+    let squared = job.data().value * job.data().value;
+    job.done(&Output { result: squared }).await.unwrap();
+
+    // Wait for the result on the producer side.
+    let output = handle.result().await.unwrap();
+    println!("3.1 ^ 2 = {}", output.result);
+}
+```
+
 ## Features (WIP)
 BullMQ has many features. The list below keeps track, which of them are imeplemented in BullRS:
 

@@ -43,12 +43,14 @@ where
             .timestamp
             .unwrap_or_else(Utc::now)
             .timestamp_millis();
+        let wait_children_key = "";
         let arguments = (
             key_prefix,
             custom_id,
             job_name,
             timestamp,
             parent_key,
+            wait_children_key,
             parent_dependencies_key,
             parent,
             repeat_job_key,
