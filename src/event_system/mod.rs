@@ -11,66 +11,112 @@ use tracing::{Instrument, Level, span, warn};
 use crate::{QueueName, worker::shutdown_switch::ShutdownSwitch};
 use stream_reader::extract_string;
 
+/// An event emitted by a queue via the Redis event stream.
 #[derive(Debug, Clone)]
 pub enum QueueEvent<R: Debug + Clone> {
+    /// Job moved to the waiting list.
     Waiting {
+        /// ID of the affected job.
         job_id: String,
+        /// Previous state, if known.
         prev: Option<String>,
     },
+    /// Job picked up by a worker.
     Active {
+        /// ID of the affected job.
         job_id: String,
+        /// Previous state, if known.
         prev: Option<String>,
     },
+    /// Job finished successfully.
     Completed {
+        /// ID of the affected job.
         job_id: String,
+        /// Deserialized return value from the worker.
         return_value: R,
+        /// Previous state, if known.
         prev: Option<String>,
     },
+    /// Job processing failed.
     Failed {
+        /// ID of the affected job.
         job_id: String,
+        /// Error message from the worker, if provided.
         failed_reason: Option<String>,
+        /// Previous state, if known.
         prev: Option<String>,
     },
+    /// Job scheduled for later execution.
     Delayed {
+        /// ID of the affected job.
         job_id: String,
+        /// Target delay as string.
         delay: Option<String>,
     },
+    /// Job stalled (worker may have crashed).
     Stalled {
+        /// ID of the affected job.
         job_id: String,
     },
+    /// Job progress was updated.
     Progress {
+        /// ID of the affected job.
         job_id: String,
+        /// Progress payload as string.
         data: Option<String>,
     },
+    /// Job added to the queue.
     Added {
+        /// ID of the affected job.
         job_id: String,
+        /// Name given to the job.
         name: Option<String>,
     },
+    /// Job removed from the queue.
     Removed {
+        /// ID of the affected job.
         job_id: String,
+        /// Previous state, if known.
         prev: Option<String>,
     },
+    /// All waiting jobs have been consumed.
     Drained,
+    /// Old jobs cleaned from a set.
     Cleaned {
+        /// Number of jobs removed.
         count: Option<String>,
     },
+    /// Queue was paused.
     Paused,
+    /// Queue was resumed.
     Resumed,
+    /// Job is waiting for its child jobs to complete.
     WaitingChildren {
+        /// ID of the affected job.
         job_id: String,
+        /// Previous state, if known.
         prev: Option<String>,
     },
+    /// Job exhausted all retry attempts.
     RetriesExhausted {
+        /// ID of the affected job.
         job_id: String,
+        /// Total attempts made.
         attempts_made: Option<String>,
     },
+    /// Job was identified as a duplicate.
     Duplicated {
+        /// ID of the affected job.
         job_id: String,
     },
+    /// Job was debounced.
     Debounced {
+        /// ID of the affected job.
         job_id: String,
     },
+    /// Job was deduplicated.
     Deduplicated {
+        /// ID of the affected job.
         job_id: String,
     },
 }

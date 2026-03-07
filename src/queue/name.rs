@@ -13,6 +13,7 @@ pub enum InvalidQueueName {
     Empty,
 }
 
+/// A validated, cheaply cloneable queue name. Colons and empty strings are rejected.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QueueName(Arc<str>);
 

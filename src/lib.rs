@@ -13,6 +13,7 @@ mod progress;
 mod queue;
 mod redisext;
 mod worker;
+/// Error types for all queue, worker and job operations.
 pub mod error;
 
 pub use event_system::QueueEvent;

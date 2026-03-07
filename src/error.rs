@@ -7,25 +7,34 @@ use redis::{RedisError, Value};
 use crate::{QueueName, redisext::RedisHashMapError};
 
 error_set! {
-    // Unifying Error so user can use the ?-operator easily
+    /// Unified error type for all queue operations. Allows using `?` across different calls.
     pub BullrsError := {
+        /// Pause or resume failed.
         PauseResume(PauseResumeError),
+        /// Adding a job failed.
         AddJob(AddJobErr),
+        /// Adding a log entry failed.
         AddLog(AddLogError),
+        /// Stalled-job recovery failed.
         MoveStalledToWait(MoveStalledToWaitError),
     }
 
-    // Granular Errors of individual tasks
+    /// Error from pausing or resuming a queue.
     pub PauseResumeError := BasicRedisError
 
+    /// Error from adding a job to a queue.
     pub AddJobErr := BasicAddError
 
+    /// Error from adding a log line to a job.
     pub AddLogError := BasicJobNotFound || BasicRedisError
 
+    /// Error from the stalled-job recovery process.
     pub MoveStalledToWaitError := BasicRedisError
 
+    /// Error from moving a job to the active state.
     pub MoveToActiveErr := BasicRedisError || JobPayloadLoading
 
+    /// Error from completing or failing a job.
     pub MoveToFinishedErr := {
         /// Missing key
         #[display("job has not been found")]
@@ -50,6 +59,7 @@ error_set! {
         Serialize(serde_json::Error),
     } || BasicRedisError
 
+    /// Error from obliterating a queue.
     pub ObliterateError := {
         /// Jobs are active, use force to overwrite anyways
         #[display("queue can only be obliterated when no job is active")]
@@ -59,41 +69,51 @@ error_set! {
         NotPaused,
     } || BasicRedisError
 
+    /// Error from updating job progress.
     pub UpdateProgressError := BasicJobNotFound || BasicRedisError
 
+    /// Error from checking whether a job has finished.
     pub IsFinishedError := BasicRedisError
 
+    /// Error from awaiting a job's result via [`crate::JobJoinHandle::result`].
     pub JobAwaitError := {
-        /// The job's processor called failed() with this reason
+        /// The worker called `failed()` on this job.
         #[display("job failed: {reason}")]
         JobFailed {
             reason: String,
         },
-        /// The job key no longer exists in Redis. This should not occur under normal
-        /// operation — it indicates the job was removed externally (e.g. obliterated
-        /// queue, manual deletion, or TTL expiry) between enqueue and result retrieval.
+        /// The job key no longer exists in Redis. Indicates external removal
+        /// (obliterated queue, manual deletion, or TTL expiry).
         #[display("job not found in Redis — it may have been removed externally")]
         JobNotFound,
-        /// Failed to deserialize the return value from JSON
+        /// Return value could not be deserialized from JSON.
         #[display("failed to deserialize job return value: {0}")]
         Deserialize(serde_json::Error),
     } || BasicRedisError
 
+    /// Low-level Redis or connection pool error.
     pub BasicRedisError := {
+        /// Redis command error.
         #[display("redis error: {0}")]
         RedisError(RedisError),
+        /// Connection pool error.
         #[display("redis pool error: {0}")]
         PoolError(PoolError),
     }
 
+    /// Errors when serializing or enqueuing a job.
     BasicAddError := {
+        /// Job payload could not be serialized to JSON.
         #[display("failed to serialize job payload to json: {0}")]
         SerializationFailed(serde_json::Error),
+        /// Parent key was expected but missing.
         #[display("parent key is missing")]
         MissingParentKey,
     } || BasicRedisError
 
+    /// The referenced job does not exist (anymore).
     BasicJobNotFound := {
+        /// Job not found in the queue.
         #[display("job \"{job_id}\" in queue \"{}\" doesn't exist (anymore)", queue_name.as_str())]
         JobNotFound {
             job_id: String,
@@ -101,15 +121,21 @@ error_set! {
         },
     }
 
+    /// Errors from loading job data out of Redis.
     JobPayloadLoading := {
+        /// Hash map field extraction failed.
         #[display("failed to load job data (payload?): {0}")]
         RedisHashMapdisplay(RedisHashMapError),
+        /// Value was not valid UTF-8.
         #[display("expected valid utf8-string from redis: {0:?}")]
         RedisStringInvalid(FromUtf8Error),
+        /// Expected a hash map but got something else.
         #[display("lua job did not return hash map as expected: {value:?}")]
         UnexpectedRedisValue { value: Value },
+        /// Lua script returned unexpected values.
         #[display("Unexpected lua script return values: {} {} {} - {:?}", v.1, v.2, v.3, v.0)]
         UnexpectedLuaOutput{ v: (Value, String, u64, i64) },
+        /// Timestamp could not be interpreted.
         #[display("Bad timestamp: {ts}")]
         BadTimestamp{ ts: i64 },
     }
