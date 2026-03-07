@@ -1,12 +1,6 @@
 use nanoid::nanoid;
-use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::Duration,
-};
-use tracing::{Instrument, Level, info, span};
+use std::{sync::Arc, time::Duration};
+use tracing::{Instrument, Level, info, span, warn};
 
 use deadpool_redis::Pool;
 use serde::de::DeserializeOwned;
@@ -21,11 +15,16 @@ use tokio::{
 use crate::{
     job::JobWorkHandle,
     queue::QueueName,
-    worker::{stalled_to_wait_handle::stalled_to_wait, workererror::WorkerError},
+    worker::{
+        shutdown_switch::ShutdownSwitch, stalled_to_wait_handle::stalled_to_wait,
+        workererror::WorkerError,
+    },
 };
 
 mod drop_handler;
+mod lock_refresh;
 mod pull_job;
+pub(crate) mod shutdown_switch;
 mod stalled_to_wait_handle;
 mod workererror;
 use pull_job::pull_job_thread;
@@ -35,20 +34,24 @@ use pull_job::pull_job_thread;
 /// The worker maintains one or multiple connections to the Redis database to dequeue
 /// jobs.
 pub struct Worker<D, R> {
+    uid: String,
     pool: Pool,
     queue_name: QueueName,
+
+    // Shared state
+    /// Take care of the parallel limit for this worker
     semaphore: Arc<Semaphore>,
-    job_fetch_handles: Vec<JoinHandle<()>>,
-    stalled_to_wait_handle: JoinHandle<()>,
     job_receiver: Receiver<Result<JobWorkHandle<D, R>, WorkerError>>,
+
+    //Dynamic Parameters;
     stalled_after: Arc<RwLock<Duration>>,
     max_stalled_before_failed: Arc<RwLock<usize>>,
     cooldown_after_error: Duration,
-    uid: String,
-    /// If terminating has been gracefully initiated we know that
-    /// no more jobs are coming from the pull job due to planned termination
-    /// and not due to error and self-termination.
-    terminating_initiated: AtomicBool,
+    shutdown_switch: ShutdownSwitch,
+
+    /// We don't need the return values, but might want to wait until
+    /// all worker subtasks terminated gracefully.
+    join_handles: Vec<JoinHandle<()>>,
 }
 
 /// Parameterize a worker. The defaults should be fine for most use cases.
@@ -81,7 +84,7 @@ pub struct WorkerArgs {
     /// long should it sleep before retrying. Keep in mind, that every error is emitted
     /// when calling [Worker::next].
     /// Defaults to 3s.
-    cooldown_after_error: Duration,
+    pub cooldown_after_error: Duration,
 }
 
 impl Default for WorkerArgs {
@@ -102,11 +105,11 @@ where
     D: Send + Sync + 'static + DeserializeOwned + std::fmt::Debug,
 {
     pub(crate) fn new(pool: Pool, queue_name: QueueName, args: WorkerArgs) -> Self {
-        let uid = nanoid!(8);
+        let worker_id = nanoid!(8);
         let worker_span = span!(
             Level::ERROR,
             "worker",
-            worker = uid,
+            id = worker_id,
             queue = queue_name.as_str()
         );
         let _guard = worker_span.enter();
@@ -115,49 +118,51 @@ where
         let stalled_after = Arc::new(RwLock::new(args.stalled_after));
         let max_stalled_before_failed = Arc::new(RwLock::new(args.max_stalled_before_failed));
         let cooldown_after_error = args.cooldown_after_error;
+        let shutdown_switch = ShutdownSwitch::new();
+        let mut join_handles = Vec::new();
 
         info!("Set up async tasks for worker");
-        let job_fetch_handles: Vec<_> = (0..args.parallel_connections)
-            .map(|_| {
-                let pull_worker_id = nanoid!(5);
-                let pull_span = span!(Level::ERROR, "pull-jobs", pull_worker_id);
-                tokio::spawn(
-                    pull_job_thread(
-                        pool.clone(),
-                        queue_name.clone(),
-                        tx.clone(),
-                        semaphore.clone(),
-                        args.cooldown_after_error,
-                        pull_worker_id,
-                    )
-                    .instrument(pull_span.clone()),
+        for _ in 0..args.parallel_connections {
+            let pull_worker_id = nanoid!(5);
+            let pull_span = span!(Level::ERROR, "pull", id = pull_worker_id);
+            let jh = tokio::spawn(
+                pull_job_thread(
+                    pool.clone(),
+                    queue_name.clone(),
+                    shutdown_switch.clone(),
+                    tx.clone(),
+                    semaphore.clone(),
+                    args.cooldown_after_error,
+                    pull_worker_id,
                 )
-            })
-            .collect();
+                .instrument(pull_span.clone()),
+            );
+            join_handles.push(jh);
+        }
 
-        let stalled_to_wait_span = span!(Level::TRACE, "stalled-to-wait");
-        let stalled_to_wait_handle = tokio::spawn(
+        let stalled_to_wait_span = span!(Level::TRACE, "stallcheck");
+        join_handles.push(tokio::spawn(
             stalled_to_wait(
                 pool.clone(),
                 queue_name.clone(),
+                shutdown_switch.clone(),
                 stalled_after.clone(),
                 max_stalled_before_failed.clone(),
             )
             .instrument(stalled_to_wait_span),
-        );
+        ));
 
         Self {
-            uid,
+            uid: worker_id,
             pool,
             queue_name,
             semaphore,
-            job_fetch_handles,
             job_receiver,
             max_stalled_before_failed,
-            stalled_to_wait_handle,
             cooldown_after_error,
             stalled_after,
-            terminating_initiated: AtomicBool::from(false),
+            shutdown_switch,
+            join_handles,
         }
     }
 
@@ -181,22 +186,12 @@ where
 
     /// Terminate this worker gracefully. [Worker::next] will emit the last pre-loaded
     /// jobs and then return only `None` values.
-    pub fn terminate(&self) {
-        self.terminating_initiated.store(true, Ordering::SeqCst);
-        self.stalled_to_wait_handle.abort();
-        for h in self.job_fetch_handles.iter() {
-            h.abort();
+    pub async fn terminate(self) {
+        self.shutdown_switch.shutdown();
+        for handle in self.join_handles {
+            if let Err(e) = handle.await {
+                warn!("Joined panicked task: {:?}", e);
+            }
         }
-    }
-
-    fn is_terminating_gracefully(&self) -> bool {
-        self.terminating_initiated.load(Ordering::SeqCst)
-    }
-}
-
-impl<D, R> Drop for Worker<D, R> {
-    fn drop(&mut self) {
-        self.stalled_to_wait_handle.abort();
-        self.job_fetch_handles.iter().for_each(|h| h.abort());
     }
 }

@@ -28,7 +28,7 @@ where
         let key_prefix = self.queue.prefix();
         let custom_id: &str = self.job_options.job_id.as_deref().unwrap_or("");
         let parent_key: Option<String> = None;
-        let wait_children_key = "";
+        let _wait_children_key = "";
         let parent_dependencies_key = "";
         let parent: Option<String> = None;
         let repeat_job_key = "";

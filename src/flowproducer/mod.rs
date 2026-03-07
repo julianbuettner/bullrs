@@ -2,8 +2,9 @@ use deadpool_redis::Pool;
 
 use crate::PreparedFlowJob;
 
+/// Not implemented yet
 #[derive(Clone)]
-pub struct FlowProducer {
+pub(crate) struct FlowProducer {
     pool: Pool,
 }
 

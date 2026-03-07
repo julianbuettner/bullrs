@@ -1,8 +1,10 @@
+use std::fmt::Debug;
+
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{
     error::{AddJobErr, ObliterateError, PauseResumeError},
-    job::JobOptions,
+    job::{JobJoinHandle, JobOptions},
     luacommands::{
         AddDelayedJob, AddPrioritizedJob, AddStandardJob, InvokeLuaScript, Obliterate,
         ObliterateOk, Pause, PauseAction,
@@ -11,7 +13,10 @@ use crate::{
     worker::{Worker, WorkerArgs},
 };
 
-impl<D, R> Queue<D, R> {
+impl<D, R> Queue<D, R>
+where
+    R: Debug + Clone + Send + DeserializeOwned + 'static,
+{
     /// Create a worker instance for processing jobs of this queue.
     /// This will immediately start preloading jobs to be processed.
     ///
@@ -19,8 +24,8 @@ impl<D, R> Queue<D, R> {
     /// and R must implement [serde::Serialize].
     pub fn worker(&self, worker_args: WorkerArgs) -> Worker<D, R>
     where
-        R: Send + 'static,
-        D: Send + Sync + DeserializeOwned + std::fmt::Debug + 'static,
+        R: Send + Clone + Debug + DeserializeOwned + 'static,
+        D: Send + Sync + DeserializeOwned + Debug + 'static,
     {
         if self.pool.status().max_size < worker_args.parallel_connections * 2 {
             self.pool.resize(worker_args.parallel_connections * 2);
@@ -60,40 +65,48 @@ impl<D, R> Queue<D, R> {
         job_name: &str,
         data: &D,
         job_options: &JobOptions,
-    ) -> Result<String, AddJobErr>
+    ) -> Result<JobJoinHandle<D, R>, AddJobErr>
     where
         D: Serialize,
     {
         let mut con = self.pool.get().await?;
-        if job_options.delay.is_some() {
+        let job_id = if job_options.delay.is_some() {
             let c = AddDelayedJob {
                 queue: &self.name,
                 job_name,
                 data,
                 job_options,
             };
-            return c.call(&mut con).await;
-        }
-        if job_options.priority.is_some() {
+            c.call(&mut con).await?
+        } else if job_options.priority.is_some() {
             let c = AddPrioritizedJob {
                 queue: &self.name,
                 job_name,
                 data,
                 job_options,
             };
-            return c.call(&mut con).await;
-        }
-        let c = AddStandardJob {
-            queue: &self.name,
-            job_name,
-            data,
-            job_options,
+            c.call(&mut con).await?
+        } else {
+            let c = AddStandardJob {
+                queue: &self.name,
+                job_name,
+                data,
+                job_options,
+            };
+            c.call(&mut con).await?
         };
-        c.call(&mut con).await
+
+        let event_rx = self.event_system.subscribe();
+        Ok(JobJoinHandle::new(
+            self.name.clone(),
+            self.pool.clone(),
+            job_id,
+            event_rx,
+        ))
     }
 
     /// Add a job with default options. See documentation of [JobOptions] for default values.
-    pub async fn add(&self, job_name: &str, data: &D) -> Result<String, AddJobErr>
+    pub async fn add(&self, job_name: &str, data: &D) -> Result<JobJoinHandle<D, R>, AddJobErr>
     where
         D: Serialize,
     {

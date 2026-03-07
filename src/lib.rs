@@ -3,6 +3,7 @@
 mod job;
 mod luacommands;
 
+mod event_system;
 mod flowproducer;
 /// Multiple serde modules for converting between milliseconds (as in JavaScript Dates once
 /// strigified) and rust equivalents, namely `Duration`, `Option<Duration>`,
@@ -14,6 +15,7 @@ mod redisext;
 mod worker;
 pub mod error;
 
+pub use event_system::QueueEvent;
 pub use job::{JobJoinHandle, JobOptions};
 pub use progress::*;
 pub use queue::{InvalidQueueName, PreparedFlowJob, Queue, QueueName};

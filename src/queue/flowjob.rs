@@ -17,6 +17,7 @@ pub struct PreparedFlowJob {
 impl<'a, D, R> Queue<D, R>
 where
     D: Serialize,
+    R: std::fmt::Debug + Clone,
 {
     /// WIP: Don't use yet
     pub fn flow_job(&self, job_name: &str, data: &D) -> serde_json::Result<PreparedFlowJob> {

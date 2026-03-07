@@ -1,6 +1,7 @@
 use bullrs::{JobOptions, Queue, WorkerArgs};
 use deadpool_redis::{Config, Pool, Runtime};
 use nanoid::nanoid;
+use ntest::timeout;
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
@@ -9,6 +10,7 @@ use setup::*;
 
 #[tokio::test]
 #[test_log::test]
+#[timeout(3_000)]
 async fn redis_time_delayed() {
     let tq = setup::TestQueue::new("delayed");
     let q = &tq.queue;

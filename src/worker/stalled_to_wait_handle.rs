@@ -7,7 +7,7 @@ use tracing::{info, warn};
 
 use crate::{
     luacommands::{InvokeLuaScript, MoveStalledJobsToWait},
-    queue::QueueName,
+    queue::QueueName, worker::shutdown_switch::ShutdownSwitch,
 };
 
 /// Move stalled jobs (worker doesn't refresh job lock) to
@@ -16,6 +16,7 @@ use crate::{
 pub async fn stalled_to_wait(
     pool: Pool,
     queue_name: QueueName,
+    _shutdown_switch: ShutdownSwitch,
     stalled_after: Arc<RwLock<Duration>>,
     max_stalled_before_failed: Arc<RwLock<usize>>,
 ) {

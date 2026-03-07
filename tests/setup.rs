@@ -11,7 +11,7 @@ pub struct Input {
     pub input: i64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Output {
     pub output: i64,
 }

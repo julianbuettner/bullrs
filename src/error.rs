@@ -61,6 +61,24 @@ error_set! {
 
     pub UpdateProgressError := BasicJobNotFound || BasicRedisError
 
+    pub IsFinishedError := BasicRedisError
+
+    pub JobAwaitError := {
+        /// The job's processor called failed() with this reason
+        #[display("job failed: {reason}")]
+        JobFailed {
+            reason: String,
+        },
+        /// The job key no longer exists in Redis. This should not occur under normal
+        /// operation — it indicates the job was removed externally (e.g. obliterated
+        /// queue, manual deletion, or TTL expiry) between enqueue and result retrieval.
+        #[display("job not found in Redis — it may have been removed externally")]
+        JobNotFound,
+        /// Failed to deserialize the return value from JSON
+        #[display("failed to deserialize job return value: {0}")]
+        Deserialize(serde_json::Error),
+    } || BasicRedisError
+
     pub BasicRedisError := {
         #[display("redis error: {0}")]
         RedisError(RedisError),

@@ -1,9 +1,11 @@
 mod setup;
 use bullrs::{JobOptions, WorkerArgs};
+use ntest::timeout;
 use setup::*;
 
 #[tokio::test]
 #[test_log::test]
+#[timeout(3_000)]
 async fn redis_priority() {
     let tq = setup::TestQueue::new("priority");
     let q = &tq.queue;

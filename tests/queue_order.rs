@@ -1,15 +1,17 @@
 use bullrs::{JobOptions, Queue, WorkerArgs};
 use deadpool_redis::{Config, Pool, Runtime};
 use nanoid::nanoid;
+use ntest::timeout;
 use serde::{Deserialize, Serialize};
 mod setup;
 use setup::*;
 
 #[tokio::test]
 #[test_log::test]
+#[timeout(3_000)]
 async fn redis_fifo_order() {
-    let mut tq = setup::TestQueue::new("order");
-    let q = &mut tq.queue;
+    let tq = setup::TestQueue::new("order");
+    let q = &tq.queue;
     q.add("A", &Input { input: 11 }).await.unwrap();
     q.add("B", &Input { input: 22 }).await.unwrap();
     q.add("C", &Input { input: 33 }).await.unwrap();
@@ -31,9 +33,10 @@ async fn redis_fifo_order() {
 
 #[tokio::test]
 #[test_log::test]
+#[timeout(3_000)]
 async fn redis_fofo_lifo_mix() {
-    let mut tq = setup::TestQueue::new("lifo");
-    let q = &mut tq.queue;
+    let tq = setup::TestQueue::new("lifo");
+    let q = &tq.queue;
     q.add("A", &Input { input: 11 }).await.unwrap();
     q.add("B", &Input { input: 22 }).await.unwrap();
     q.add_with(

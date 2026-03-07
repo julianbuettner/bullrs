@@ -1,12 +1,13 @@
 use std::{
     marker::PhantomData,
+    sync::Arc,
     time::{Duration, SystemTime},
 };
 
 use chrono::{DateTime, Utc};
 use deadpool_redis::Pool;
 use serde::Serialize;
-use tokio::{sync::OwnedSemaphorePermit, task::JoinHandle};
+use tokio::sync::OwnedSemaphorePermit;
 use tracing::warn;
 
 use crate::{
@@ -30,13 +31,14 @@ pub struct JobWorkHandle<D, R> {
     pool: Pool,
     id: String,
     name: String,
-    _semaphore_permit: OwnedSemaphorePermit,
     data: D,
     phantom: PhantomData<R>, // Result
-    lock_refresh_handle: JoinHandle<()>,
     has_been_finished: bool,
-    lock_token: String,
+    // The lock token should never be leaked. It will be
+    // refreshed by the worker as long as it is referenced.
+    lock_token: Arc<str>,
     worker_name: String,
+    _semaphore_permit: OwnedSemaphorePermit,
 }
 
 impl<D, R> JobWorkHandle<D, R> {
@@ -47,8 +49,7 @@ impl<D, R> JobWorkHandle<D, R> {
         name: String,
         semaphore_permit: OwnedSemaphorePermit,
         data: D,
-        lock_refresh_handle: JoinHandle<()>,
-        lock_token: String,
+        lock_token: Arc<str>,
         worker_name: String,
     ) -> Self {
         Self {
@@ -58,7 +59,6 @@ impl<D, R> JobWorkHandle<D, R> {
             name,
             _semaphore_permit: semaphore_permit,
             data,
-            lock_refresh_handle,
             phantom: PhantomData,
             lock_token,
             worker_name,
@@ -85,14 +85,13 @@ impl<D, R> JobWorkHandle<D, R> {
         R: Serialize,
     {
         self.has_been_finished = true;
-        self.lock_refresh_handle.abort();
         let move_to_finished = MoveToFinished {
             queue: &self.queue_name,
             job_id: &self.id,
             timestamp: Utc::now(),
             result,
             options: MoveToFinishedOptions {
-                lock_token: self.lock_token.clone(),
+                lock_token: self.lock_token.to_string(),
                 keep_jobs: KeepJobsConfig {
                     count: -1,
                     age: None,
@@ -161,7 +160,6 @@ impl<D, R> JobWorkHandle<D, R> {
 impl<D, R> Drop for JobWorkHandle<D, R> {
     fn drop(&mut self) {
         if !self.has_been_finished {
-            self.lock_refresh_handle.abort();
             warn!(
                 "Job \"{}\" of queue \"{}\" has been dropped without done() or failed() being called.",
                 self.id,

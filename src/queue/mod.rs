@@ -3,9 +3,12 @@ mod flowjob;
 mod getset;
 mod name;
 
-use std::marker::PhantomData;
+use std::{fmt::Debug, marker::PhantomData, sync::Arc};
 
 use deadpool_redis::Pool;
+use serde::de::DeserializeOwned;
+
+use crate::event_system::EventSystem;
 
 pub use flowjob::PreparedFlowJob;
 pub use name::{InvalidQueueName, QueueName};
@@ -32,19 +35,35 @@ has to implement [serde::Serialize] to be enqueuable.
 `R` is the type of the Result, which has to implement [serde::Deserialize]
 to be retrieved.
 */
-#[derive(Clone)]
-pub struct Queue<D, R> {
+pub struct Queue<D, R: Debug + Clone> {
     name: QueueName,
     pool: Pool,
-    phantom: PhantomData<(D, R)>, // Data, Result
+    event_system: Arc<EventSystem<R>>,
+    phantom: PhantomData<D>,
 }
 
-impl<D, R> Queue<D, R> {
+impl<D, R: Debug + Clone> Clone for Queue<D, R> {
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            pool: self.pool.clone(),
+            event_system: self.event_system.clone(),
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<D, R> Queue<D, R>
+where
+    R: Debug + Clone + Send + DeserializeOwned + 'static,
+{
     /// Construct a Queue from a [deadpool_redis::Pool] and a [crate::QueueName].
     pub fn new(pool: Pool, name: QueueName) -> Self {
+        let event_system = Arc::new(EventSystem::new(pool.clone(), name.clone()));
         Self {
             name,
             pool,
+            event_system,
             phantom: PhantomData,
         }
     }
