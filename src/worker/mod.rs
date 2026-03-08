@@ -42,12 +42,13 @@ pub struct Worker<D, R> {
     /// Take care of the parallel limit for this worker
     semaphore: Arc<Semaphore>,
     job_receiver: Receiver<Result<JobWorkHandle<D, R>, WorkerError>>,
+    shutdown_switch: ShutdownSwitch,
+    pulling_switch: ShutdownSwitch,
 
     //Dynamic Parameters;
     stalled_after: Arc<RwLock<Duration>>,
     max_stalled_before_failed: Arc<RwLock<usize>>,
     cooldown_after_error: Duration,
-    shutdown_switch: ShutdownSwitch,
 
     /// We don't need the return values, but might want to wait until
     /// all worker subtasks terminated gracefully.
@@ -119,6 +120,7 @@ where
         let max_stalled_before_failed = Arc::new(RwLock::new(args.max_stalled_before_failed));
         let cooldown_after_error = args.cooldown_after_error;
         let shutdown_switch = ShutdownSwitch::new();
+        let pulling_switch: ShutdownSwitch = ShutdownSwitch::new();
         let mut join_handles = Vec::new();
 
         info!("Set up async tasks for worker");
@@ -130,6 +132,7 @@ where
                     pool.clone(),
                     queue_name.clone(),
                     shutdown_switch.clone(),
+                    pulling_switch.clone(),
                     tx.clone(),
                     semaphore.clone(),
                     args.cooldown_after_error,
@@ -162,6 +165,7 @@ where
             cooldown_after_error,
             stalled_after,
             shutdown_switch,
+            pulling_switch,
             join_handles,
         }
     }
@@ -184,8 +188,24 @@ where
         !self.job_receiver.is_empty()
     }
 
-    /// Terminate this worker gracefully. [Worker::next] will emit the last pre-loaded
-    /// jobs and then return only `None` values.
+    /** Stop pulling for new jobs, so that the queued jobs can be
+     * processed and the worker be terminated. The worker will keep
+     * to do things like refreshing job locks. Continue to call
+     * [Worker::next] until it returns [None]. Then all jobs in queue
+     * have been processed.
+     *
+     * This can be only used
+     * for graceful termination. Workers can not be paused. But the
+     * queue can be paused and you can simply pause from calling
+     * [Worker::next].*/
+    pub fn stop_pulling_jobs(&self) {
+        self.pulling_switch.shutdown();
+    }
+
+    /** Terminate this worker completely. Please call [Worker::stop_pulling_jobs]
+     * first, so you can process the remaining jobs instead of letting them stall.
+     * [Worker::next] will emit the last pre-loaded
+     * jobs and then return only [None] values. */
     pub async fn terminate(self) {
         self.shutdown_switch.shutdown();
         for handle in self.join_handles {

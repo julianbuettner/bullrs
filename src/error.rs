@@ -79,6 +79,7 @@ error_set! {
     pub JobAwaitError := {
         /// The worker called `failed()` on this job.
         #[display("job failed: {reason}")]
+        #[allow(missing_docs)]
         JobFailed {
             reason: String,
         },
@@ -115,6 +116,7 @@ error_set! {
     BasicJobNotFound := {
         /// Job not found in the queue.
         #[display("job \"{job_id}\" in queue \"{}\" doesn't exist (anymore)", queue_name.as_str())]
+        #[allow(missing_docs)]
         JobNotFound {
             job_id: String,
             queue_name: QueueName,
@@ -131,12 +133,15 @@ error_set! {
         RedisStringInvalid(FromUtf8Error),
         /// Expected a hash map but got something else.
         #[display("lua job did not return hash map as expected: {value:?}")]
+        #[allow(missing_docs)]
         UnexpectedRedisValue { value: Value },
         /// Lua script returned unexpected values.
         #[display("Unexpected lua script return values: {} {} {} - {:?}", v.1, v.2, v.3, v.0)]
+        #[allow(missing_docs)]
         UnexpectedLuaOutput{ v: (Value, String, u64, i64) },
         /// Timestamp could not be interpreted.
         #[display("Bad timestamp: {ts}")]
+        #[allow(missing_docs)]
         BadTimestamp{ ts: i64 },
     }
 }

@@ -1,6 +1,6 @@
 use chrono::Utc;
 use redis::{ErrorKind, RedisError, Value};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::{
     JobOptions,
@@ -14,11 +14,6 @@ pub struct AddDelayedJob<'a, D> {
     pub job_name: &'a str,
     pub data: &'a D,
     pub job_options: &'a JobOptions,
-}
-
-#[derive(Debug, Deserialize)]
-pub enum AddDelayedJobOk {
-    JobId(String),
 }
 
 impl<'a, D> InvokeLuaScript for AddDelayedJob<'a, D>

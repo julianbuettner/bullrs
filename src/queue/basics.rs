@@ -96,12 +96,11 @@ where
             c.call(&mut con).await?
         };
 
-        let event_rx = self.event_system.subscribe();
         Ok(JobJoinHandle::new(
             self.name.clone(),
             self.pool.clone(),
             job_id,
-            event_rx,
+            self.event_system.clone(),
         ))
     }
 

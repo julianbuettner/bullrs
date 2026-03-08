@@ -33,6 +33,7 @@ pub async fn pull_job_thread<D, R>(
     pool: Pool,
     queue_name: QueueName,
     shutdown_switch: ShutdownSwitch,
+    pulling_switch: ShutdownSwitch,
     job_sender: Sender<Result<JobWorkHandle<D, R>, WorkerError>>,
     semaphore: Arc<Semaphore>,
     failure_cooldown: Duration,
@@ -59,7 +60,7 @@ pub async fn pull_job_thread<D, R>(
     );
 
     let mut counter: usize = 0;
-    while shutdown_switch.running() {
+    while shutdown_switch.running() && pulling_switch.running() {
         let permit = semaphore
             .clone()
             .acquire_owned()
