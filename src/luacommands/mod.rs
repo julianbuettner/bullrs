@@ -4,6 +4,7 @@ use lazy_static::lazy_static;
 use redis::{FromRedisValue, RedisError, Script, ScriptInvocation, aio::ConnectionLike};
 
 mod add_delayed_job;
+mod add_job_scheduler;
 mod add_log;
 mod add_prioritized_job;
 mod add_standard_job;
@@ -14,9 +15,11 @@ mod move_to_active;
 mod move_to_finished;
 mod obliterate;
 mod pause;
+mod remove_job_scheduler;
 mod update_progress;
 
 pub use add_delayed_job::AddDelayedJob;
+pub use add_job_scheduler::{AddJobScheduler, AddJobSchedulerOk, JobSchedulerOpts};
 pub use add_log::AddLog;
 pub use add_prioritized_job::AddPrioritizedJob;
 pub use add_standard_job::AddStandardJob;
@@ -27,6 +30,7 @@ pub use move_to_active::{MoveToActive, MoveToActiveOk, RateLimiter};
 pub use move_to_finished::{KeepJobsConfig, MoveToFinished, MoveToFinishedOptions};
 pub use obliterate::{Obliterate, ObliterateOk};
 pub use pause::{Pause, PauseAction};
+pub use remove_job_scheduler::RemoveJobScheduler;
 pub use update_progress::UpdateProgess;
 
 macro_rules! load_script {
@@ -37,6 +41,7 @@ macro_rules! load_script {
 
 lazy_static! {
     static ref ADD_DELAYED_JOB: Script = load_script!("addDelayedJob-6.lua");
+    static ref ADD_JOB_SCHEDULER: Script = load_script!("addJobScheduler-11.lua");
     static ref ADD_LOG: Script = load_script!("addLog-2.lua");
     static ref ADD_PRIORITIZED_JOB: Script = load_script!("addPrioritizedJob-9.lua");
     static ref ADD_STANDARD_JOB: Script = load_script!("addStandardJob-9.lua");
@@ -47,6 +52,7 @@ lazy_static! {
     static ref MOVE_TO_FINISHED: Script = load_script!("moveToFinished-14.lua");
     static ref OBLITERATE: Script = load_script!("obliterate-2.lua");
     static ref PAUSE: Script = load_script!("pause-7.lua");
+    static ref REMOVE_JOB_SCHEDULER: Script = load_script!("removeJobScheduler-3.lua");
     static ref UPDATE_DATA: Script = load_script!("updateData-1.lua");
     static ref UPDATE_PROGRESS: Script = load_script!("updateProgress-3.lua");
 }

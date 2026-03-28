@@ -72,6 +72,26 @@ error_set! {
     /// Error from updating job progress.
     pub UpdateProgressError := BasicJobNotFound || BasicRedisError
 
+    /// Error from adding a job scheduler.
+    pub AddJobSchedulerError := {
+        /// A job with the computed ID already exists and could not be replaced.
+        #[display("scheduler job ID collision")]
+        JobIdCollision,
+        /// Both the current and next time slot already have existing jobs.
+        #[display("scheduler job slots busy")]
+        JobSlotsBusy,
+        /// Serialization of job data or options failed.
+        #[display("failed to serialize: {0:?}")]
+        SerializationFailed(serde_json::Error),
+    } || BasicRedisError
+
+    /// Error from removing a job scheduler.
+    pub RemoveJobSchedulerError := {
+        /// No scheduler with the given ID exists.
+        #[display("job scheduler not found")]
+        NotFound,
+    } || BasicRedisError
+
     /// Error from checking whether a job has finished.
     pub IsFinishedError := BasicRedisError
 
