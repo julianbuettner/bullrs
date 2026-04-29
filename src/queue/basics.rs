@@ -1,15 +1,21 @@
 use std::fmt::Debug;
 
+use redis::AsyncCommands;
 use serde::{Serialize, de::DeserializeOwned};
+use serde::de::Error as _;
 
 use crate::{
-    error::{AddJobErr, ObliterateError, PauseResumeError},
+    JobSchedulerInfo, JobSchedulerTemplate,
+    error::{AddJobErr, AddJobSchedulerError, BasicRedisError, ObliterateError, PauseResumeError, RemoveJobSchedulerError},
     job::{JobJoinHandle, JobOptions},
     luacommands::{
-        AddDelayedJob, AddPrioritizedJob, AddStandardJob, InvokeLuaScript, Obliterate,
-        ObliterateOk, Pause, PauseAction,
+        AddDelayedJob, AddJobScheduler, AddJobSchedulerOk, AddPrioritizedJob, AddStandardJob,
+        GetJobScheduler, GetJobSchedulerOk, InvokeLuaScript, Obliterate, ObliterateOk, Pause,
+        PauseAction, RemoveJobScheduler,
     },
     queue::Queue,
+    scheduler::{RepeatOptions, compute_next_millis},
+    JobSchedulerOpts,
     worker::{Worker, WorkerArgs},
 };
 
@@ -69,6 +75,35 @@ where
     where
         D: Serialize,
     {
+        // If repeat options are present, create / update a job scheduler instead of a one-off job.
+        if let Some(ref repeat) = job_options.repeat {
+            let template = JobSchedulerTemplate {
+                name: job_name,
+                data,
+                opts: job_options,
+            };
+            let ok = self
+                .upsert_job_scheduler(
+                    &format!("{}:{}", self.name.as_str(), job_name),
+                    repeat,
+                    template,
+                )
+                .await
+                .map_err(|e| match e {
+                    AddJobSchedulerError::JobIdCollision => AddJobErr::SchedulerJobIdCollision,
+                    AddJobSchedulerError::JobSlotsBusy => AddJobErr::SchedulerJobSlotsBusy,
+                    AddJobSchedulerError::SerializationFailed(err) => AddJobErr::SerializationFailed(err),
+                    AddJobSchedulerError::RedisError(err) => AddJobErr::RedisError(err),
+                    AddJobSchedulerError::PoolError(err) => AddJobErr::PoolError(err),
+                })?;
+            return Ok(JobJoinHandle::new(
+                self.name.clone(),
+                self.pool.clone(),
+                ok.job_id,
+                self.event_system.clone(),
+            ));
+        }
+
         let mut con = self.pool.get().await?;
         let job_id = if job_options.delay.is_some() {
             let c = AddDelayedJob {
@@ -111,6 +146,113 @@ where
     {
         let job_options: JobOptions = Default::default();
         self.add_with(job_name, data, &job_options).await
+    }
+
+    /// Create or update a job scheduler.
+    ///
+    /// `scheduler_id` is a unique identifier for this scheduler (e.g. `"daily-report"`).
+    /// `repeat` describes the repetition rule (`every` ms or a cron `pattern`).
+    /// `template` optionally overrides the default job name / data / options for every
+    /// produced job.
+    ///
+    /// Returns the id and delay of the first (or updated) delayed job.
+    pub async fn upsert_job_scheduler(
+        &self,
+        scheduler_id: &str,
+        repeat: &RepeatOptions,
+        template: JobSchedulerTemplate<'_, D>,
+    ) -> Result<AddJobSchedulerOk, AddJobSchedulerError>
+    where
+        D: Serialize,
+    {
+        let now = chrono::Utc::now();
+        let next_millis = compute_next_millis(repeat, now).map_err(|e| {
+            AddJobSchedulerError::SerializationFailed(serde_json::Error::custom(e))
+        })?;
+
+        let scheduler_opts = JobSchedulerOpts {
+            name: template.name.into(),
+            tz: repeat.tz.clone(),
+            pattern: repeat.pattern.clone(),
+            end_date: repeat.end_date.map(|dt| dt.timestamp_millis()),
+            every: repeat.every,
+            offset: repeat.offset,
+            start_date: repeat.start_date.map(|dt| dt.timestamp_millis()),
+            limit: repeat.limit,
+        };
+
+        let mut con = self.pool.get().await?;
+        let cmd = AddJobScheduler {
+            queue: &self.name,
+            job_scheduler_id: scheduler_id,
+            next_millis,
+            scheduler_opts: &scheduler_opts,
+            template_data: template.data,
+            template_opts: template.opts,
+            delayed_opts: template.opts,
+            producer_key: None,
+        };
+        cmd.call(&mut con).await
+    }
+
+    /// Remove a scheduler and its pending next job.
+    pub async fn remove_job_scheduler(
+        &self,
+        scheduler_id: &str,
+    ) -> Result<(), RemoveJobSchedulerError> {
+        let mut con = self.pool.get().await?;
+        let cmd = RemoveJobScheduler {
+            queue: &self.name,
+            job_scheduler_id: scheduler_id,
+        };
+        cmd.call(&mut con).await
+    }
+
+    /// List all job schedulers for this queue.
+    pub async fn get_job_schedulers(&self) -> Result<Vec<JobSchedulerInfo>, BasicRedisError> {
+        let mut con = self.pool.get().await?;
+        let ids: Vec<String> = con.zrange(self.name.repeat(), 0, -1).await?;
+        let mut result = Vec::with_capacity(ids.len());
+        for id in ids {
+            let cmd = GetJobScheduler {
+                queue: &self.name,
+                scheduler_id: &id,
+            };
+            if let Some(GetJobSchedulerOk { fields, next_millis }) =
+                cmd.call(&mut con).await.ok().flatten()
+            {
+                let mut info = JobSchedulerInfo {
+                    id,
+                    name: None,
+                    tz: None,
+                    pattern: None,
+                    every: None,
+                    end_date: None,
+                    start_date: None,
+                    limit: None,
+                    offset: None,
+                    iteration_count: None,
+                    next_millis,
+                };
+                let mut it = fields.into_iter();
+                while let Some((k, v)) = it.next() {
+                    match k.as_str() {
+                        "name" => info.name = Some(v),
+                        "tz" => info.tz = Some(v),
+                        "pattern" => info.pattern = Some(v),
+                        "every" => info.every = v.parse().ok(),
+                        "endDate" => info.end_date = v.parse().ok(),
+                        "startDate" => info.start_date = v.parse().ok(),
+                        "limit" => info.limit = v.parse().ok(),
+                        "offset" => info.offset = v.parse().ok(),
+                        "ic" => info.iteration_count = v.parse().ok(),
+                        _ => {}
+                    }
+                }
+                result.push(info);
+            }
+        }
+        Ok(result)
     }
 
     /**

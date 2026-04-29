@@ -130,6 +130,12 @@ error_set! {
         /// Parent key was expected but missing.
         #[display("parent key is missing")]
         MissingParentKey,
+        /// Scheduler job ID collision.
+        #[display("scheduler job ID collision")]
+        SchedulerJobIdCollision,
+        /// Scheduler job slots busy.
+        #[display("scheduler job slots busy")]
+        SchedulerJobSlotsBusy,
     } || BasicRedisError
 
     /// The referenced job does not exist (anymore).

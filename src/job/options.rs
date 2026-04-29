@@ -45,7 +45,7 @@ pub struct ParentOptions {
     queue: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum KeepJobs {
     /// How many jobs to keep after processing
     Count(usize),
@@ -61,7 +61,7 @@ pub enum KeepJobs {
 }
 
 /// Configure enqueue and retry behaviour of a job.
-#[derive(Default, Debug, Serialize, Builder)]
+#[derive(Default, Debug, Serialize, Deserialize, Builder)]
 pub struct JobOptions {
     /// Maximum tries before considering a job failed. Will be tried at least once, even for `Some(0)`.
     pub attempts: Option<usize>,
@@ -105,7 +105,10 @@ pub struct JobOptions {
     /// When and how to keep jobs after failing and exceeding all attempts
     pub remove_on_fail: Option<KeepJobs>,
 
-    // repeat skipped for now
+    /// Repeat / scheduler options. When this field is set, the queue will
+    /// create a job scheduler instead of a one-off job.
+    pub repeat: Option<crate::RepeatOptions>,
+
     // repeatJobKey skipped for now
     /// How many bytes is the job data allowed to have
     pub size_limit: Option<usize>,

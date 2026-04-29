@@ -17,10 +17,11 @@ use crate::{
 use crate::{
     job::JobOptions,
     luacommands::{
-        AddLog, InvokeLuaScript, KeepJobsConfig, MoveToFinished, MoveToFinishedOptions,
-        UpdateProgess,
+        AddLog, GetJobScheduler, InvokeLuaScript, KeepJobsConfig, MoveToFinished,
+        MoveToFinishedOptions, UpdateJobScheduler, UpdateProgess,
     },
     queue::QueueName,
+    scheduler::compute_cron_next_millis,
 };
 
 /// A unit of work obtained from the worker instance to be
@@ -39,6 +40,10 @@ pub struct JobWorkHandle<D, R> {
     lock_token: Arc<str>,
     worker_name: String,
     _semaphore_permit: OwnedSemaphorePermit,
+    /// If this job was produced by a scheduler, this is the scheduler id.
+    repeat_job_key: Option<String>,
+    /// Raw JSON of the job options, used for scheduler updates.
+    opts_json: Option<String>,
 }
 
 impl<D, R> JobWorkHandle<D, R> {
@@ -51,6 +56,8 @@ impl<D, R> JobWorkHandle<D, R> {
         data: D,
         lock_token: Arc<str>,
         worker_name: String,
+        repeat_job_key: Option<String>,
+        opts_json: Option<String>,
     ) -> Self {
         Self {
             queue_name,
@@ -63,6 +70,8 @@ impl<D, R> JobWorkHandle<D, R> {
             lock_token,
             worker_name,
             has_been_finished: false,
+            repeat_job_key,
+            opts_json,
         }
     }
 
@@ -109,7 +118,86 @@ impl<D, R> JobWorkHandle<D, R> {
             job_fields: None,
         };
         let mut con = self.pool.get().await?;
-        move_to_finished.call(&mut con).await
+        move_to_finished.call(&mut con).await?;
+
+        // If this job belongs to a scheduler, schedule the next iteration (best-effort).
+        if let Some(ref scheduler_id) = self.repeat_job_key {
+            if let Err(e) = self.update_scheduler_next_job(scheduler_id).await {
+                warn!(
+                    "Failed to update scheduler {scheduler_id} after job {}: {e:?}",
+                    self.id
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn update_scheduler_next_job(
+        &self,
+        scheduler_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let mut con = self.pool.get().await?;
+
+        // 1. Fetch scheduler metadata.
+        let info = GetJobScheduler {
+            queue: &self.queue_name,
+            scheduler_id,
+        }
+        .call(&mut con)
+        .await?
+        .ok_or("scheduler not found")?;
+
+        // 2. Stop if endDate reached or limit exceeded (optional early-exit).
+        let now = Utc::now().timestamp_millis();
+        if let Some(end_date) = info.fields.iter().find(|(k, _)| k == "endDate").and_then(|(_, v)| v.parse::<i64>().ok()) {
+            if now > end_date {
+                return Ok(());
+            }
+        }
+        if let Some(limit) = info.fields.iter().find(|(k, _)| k == "ic").and_then(|(_, v)| v.parse::<u64>().ok()) {
+            let max_limit = info.fields.iter().find(|(k, _)| k == "limit").and_then(|(_, v)| v.parse::<u64>().ok());
+            if let Some(max) = max_limit {
+                if limit >= max {
+                    return Ok(());
+                }
+            }
+        }
+
+        // 3. Compute next_millis.
+        let every = info.fields.iter().find(|(k, _)| k == "every").and_then(|(_, v)| v.parse::<u64>().ok());
+        let next_millis = if let Some(every) = every {
+            // Lua script recalculates for 'every' internally; any positive value is fine.
+            now + every as i64
+        } else if let Some(pattern) = info.fields.iter().find(|(k, _)| k == "pattern").map(|(_, v)| v.clone()) {
+            let tz = info.fields.iter().find(|(k, _)| k == "tz").map(|(_, v)| v.as_str());
+            compute_cron_next_millis(&pattern, tz, DateTime::from_timestamp_millis(now).unwrap_or_else(Utc::now))?
+        } else {
+            return Err("scheduler has no every or pattern".into());
+        };
+
+        // 4. Parse the stored opts so we can pass them to the update script.
+        let delayed_opts: JobOptions = if let Some(ref opts_json) = self.opts_json {
+            serde_json::from_str(opts_json).unwrap_or_default()
+        } else {
+            JobOptions::default()
+        };
+
+        // 5. Call updateJobScheduler.
+        let _ = UpdateJobScheduler {
+            queue: &self.queue_name,
+            scheduler_id,
+            next_millis,
+            delayed_data_json: "{}",
+            delayed_opts: &delayed_opts,
+            timestamp: now,
+            prefix: self.queue_name.prefix(),
+            producer_id: Some(&self.id),
+        }
+        .call(&mut con)
+        .await?;
+
+        Ok(())
     }
     /// Mark job as done, by providing an `Ok()` value.
     pub async fn done(self, value: &R) -> Result<(), MoveToFinishedErr>

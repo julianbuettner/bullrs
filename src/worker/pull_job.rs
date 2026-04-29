@@ -120,6 +120,8 @@ pub async fn pull_job_thread<D, R>(
                         data.data,
                         lock_token,
                         pull_worker_id.clone(),
+                        data.repeat_job_key,
+                        data.opts_json,
                     )))
                     .await
                     .is_err();

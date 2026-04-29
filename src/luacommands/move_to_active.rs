@@ -41,6 +41,10 @@ pub struct ActiveJob<D: DeserializeOwned> {
     // pub opts: Option<JobOptions>,
     // Moved from active to stalled to ready
     pub stc: Option<usize>,
+    /// The scheduler id (`repeatJobKey`) if this job was produced by a scheduler.
+    pub repeat_job_key: Option<String>,
+    /// Raw JSON of the job options, needed for scheduler updates.
+    pub opts_json: Option<String>,
 }
 
 #[derive(Debug)]
@@ -148,6 +152,8 @@ fn active_job_from_hashmap<D: DeserializeOwned>(
             .extract_opt::<i64>("delay")?
             .map(|d| Duration::from_millis(std::cmp::max(0, d) as u64)),
         stc: None,
+        repeat_job_key: data.get("rjk").cloned(),
+        opts_json: data.get("opts").cloned(),
     })
 }
 
