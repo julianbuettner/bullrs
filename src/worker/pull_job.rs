@@ -21,8 +21,9 @@ use tokio::{
 };
 
 use crate::{
+    RateLimit,
     job::JobWorkHandle,
-    luacommands::{InvokeLuaScript as _, MoveToActive, MoveToActiveOk, RateLimiter},
+    luacommands::{InvokeLuaScript as _, MoveToActive, MoveToActiveOk},
     queue::QueueName,
     worker::{
         lock_refresh::lock_refresh, shutdown_switch::ShutdownSwitch, workererror::WorkerError,
@@ -93,9 +94,9 @@ pub async fn pull_job_thread<D, R>(
         let mts = MoveToActive::<D> {
             queue: &queue_name,
             worker_id: &pull_worker_id,
-            limiter: RateLimiter {
+            limiter: RateLimit {
                 max: 0,
-                duration: Duration::from_millis(0),
+                window: Duration::from_millis(0),
             },
             lock_duration,
             token: &lock_token,
@@ -120,8 +121,8 @@ pub async fn pull_job_thread<D, R>(
                         data.data,
                         lock_token,
                         pull_worker_id.clone(),
-                        data.repeat_job_key,
-                        data.opts_json,
+                        data.scheduled_by,
+                        data.options,
                     )))
                     .await
                     .is_err();

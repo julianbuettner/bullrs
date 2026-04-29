@@ -3,34 +3,12 @@ use redis::Value;
 use serde::Serialize;
 
 use crate::{
-    JobOptions,
+    JobOptions, Repeat, SchedulerId, SchedulerTemplate, SchedulerWindow,
+    bullmq::{options::WireJobOptions, scheduler::WireSchedulerOpts},
     error::AddJobSchedulerError,
     luacommands::{ADD_JOB_SCHEDULER, InvokeLuaScript},
     queue::QueueName,
 };
-
-/// Options describing the schedule (cron pattern or fixed interval).
-#[derive(Debug, Serialize)]
-pub struct JobSchedulerOpts {
-    /// Name of the jobs created by this scheduler
-    pub name: String,
-    /// Timezone for cron pattern evaluation (e.g. "Europe/Berlin")
-    pub tz: Option<String>,
-    /// Cron pattern string
-    pub pattern: Option<String>,
-    /// End date as millisecond timestamp — scheduler stops producing jobs after this
-    #[serde(rename = "endDate")]
-    pub end_date: Option<i64>,
-    /// Fixed interval in milliseconds (alternative to cron pattern)
-    pub every: Option<u64>,
-    /// Offset in milliseconds applied to the "every" schedule
-    pub offset: Option<i64>,
-    /// Start date as millisecond timestamp for "every" mode
-    #[serde(rename = "startDate")]
-    pub start_date: Option<i64>,
-    /// Maximum number of jobs to produce
-    pub limit: Option<u64>,
-}
 
 /// Successful result of adding a job scheduler.
 pub struct AddJobSchedulerOk {
@@ -40,23 +18,21 @@ pub struct AddJobSchedulerOk {
     pub delay: i64,
 }
 
+/// Add or update a job scheduler.
 pub struct AddJobScheduler<'a, D> {
     pub queue: &'a QueueName,
-    /// Unique identifier for this scheduler
-    pub job_scheduler_id: &'a str,
+    pub scheduler_id: &'a SchedulerId,
     /// Next fire time in milliseconds since epoch.
-    /// For cron patterns, computed by the caller.
-    /// For "every" mode, may be recomputed by the Lua script.
     pub next_millis: i64,
-    /// Schedule configuration (cron pattern or fixed interval)
-    pub scheduler_opts: &'a JobSchedulerOpts,
-    /// Template data for jobs created by this scheduler
-    pub template_data: &'a D,
-    /// Template job options stored with the scheduler
-    pub template_opts: &'a JobOptions,
-    /// Job options applied when creating each scheduled job
+    /// Repetition rule.
+    pub repeat: &'a Repeat,
+    /// Optional bounds (start/end/limit/immediately).
+    pub window: &'a SchedulerWindow,
+    /// Template applied to every produced job.
+    pub template: SchedulerTemplate<'a, D>,
+    /// Job options applied when creating each scheduled job.
     pub delayed_opts: &'a JobOptions,
-    /// Optional producer key (for flow producers)
+    /// Optional producer key (for flow producers).
     pub producer_key: Option<&'a str>,
 }
 
@@ -69,12 +45,13 @@ where
     type DomainErr = AddJobSchedulerError;
 
     fn generate_invocation(&self) -> Result<redis::ScriptInvocation<'static>, Self::DomainErr> {
-        let template_data_json = serde_json::to_string(self.template_data)?;
+        let template_data_json = serde_json::to_string(self.template.data)?;
         let now = Utc::now().timestamp_millis();
+        let scheduler_opts =
+            WireSchedulerOpts::from_domain(self.template.name, self.repeat, self.window);
 
         let mut invocation = ADD_JOB_SCHEDULER.prepare_invoke();
         invocation
-            // KEYS
             .key(self.queue.repeat()) // KEYS[1]
             .key(self.queue.delayed()) // KEYS[2]
             .key(self.queue.wait()) // KEYS[3]
@@ -86,13 +63,18 @@ where
             .key(self.queue.events()) // KEYS[9]
             .key(self.queue.priority_counter()) // KEYS[10]
             .key(self.queue.active()) // KEYS[11]
-            // ARGV
             .arg(self.next_millis) // ARGV[1]
-            .arg(rmp_serde::to_vec_named(self.scheduler_opts).expect("serializing never fails")) // ARGV[2]
-            .arg(self.job_scheduler_id) // ARGV[3]
+            .arg(rmp_serde::to_vec_named(&scheduler_opts).expect("serializing never fails")) // ARGV[2]
+            .arg(self.scheduler_id.as_ref()) // ARGV[3]
             .arg(&template_data_json) // ARGV[4]
-            .arg(rmp_serde::to_vec_named(self.template_opts).expect("serializing never fails")) // ARGV[5]
-            .arg(rmp_serde::to_vec_named(self.delayed_opts).expect("serializing never fails")) // ARGV[6]
+            .arg(
+                rmp_serde::to_vec_named(&WireJobOptions::from(self.template.opts))
+                    .expect("serializing never fails"),
+            ) // ARGV[5]
+            .arg(
+                rmp_serde::to_vec_named(&WireJobOptions::from(self.delayed_opts))
+                    .expect("serializing never fails"),
+            ) // ARGV[6]
             .arg(now) // ARGV[7]
             .arg(self.queue.prefix()) // ARGV[8]
             .arg(self.producer_key.unwrap_or("")); // ARGV[9]

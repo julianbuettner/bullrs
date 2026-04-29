@@ -1,4 +1,5 @@
 use crate::{
+    SchedulerId,
     error::RemoveJobSchedulerError,
     luacommands::{InvokeLuaScript, REMOVE_JOB_SCHEDULER},
     queue::QueueName,
@@ -6,7 +7,7 @@ use crate::{
 
 pub struct RemoveJobScheduler<'a> {
     pub queue: &'a QueueName,
-    pub job_scheduler_id: &'a str,
+    pub scheduler_id: &'a SchedulerId,
 }
 
 impl<'a> InvokeLuaScript for RemoveJobScheduler<'a> {
@@ -17,11 +18,11 @@ impl<'a> InvokeLuaScript for RemoveJobScheduler<'a> {
     fn generate_invocation(&self) -> Result<redis::ScriptInvocation<'static>, Self::DomainErr> {
         let mut invocation = REMOVE_JOB_SCHEDULER.prepare_invoke();
         invocation
-            .key(self.queue.repeat())  // KEYS[1]
-            .key(self.queue.delayed()) // KEYS[2]
-            .key(self.queue.events())  // KEYS[3]
-            .arg(self.job_scheduler_id)  // ARGV[1]
-            .arg(self.queue.prefix());   // ARGV[2]
+            .key(self.queue.repeat())
+            .key(self.queue.delayed())
+            .key(self.queue.events())
+            .arg(self.scheduler_id.as_ref())
+            .arg(self.queue.prefix());
         Ok(invocation)
     }
 

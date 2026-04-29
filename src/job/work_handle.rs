@@ -11,21 +11,21 @@ use tokio::sync::OwnedSemaphorePermit;
 use tracing::warn;
 
 use crate::{
-    ProgressPercent,
+    ProgressPercent, Repeat, SchedulerId,
     error::{AddLogError, MoveToFinishedErr, UpdateProgressError},
 };
 use crate::{
     job::JobOptions,
     luacommands::{
-        AddLog, GetJobScheduler, InvokeLuaScript, KeepJobsConfig, MoveToFinished,
-        MoveToFinishedOptions, UpdateJobScheduler, UpdateProgess,
+        AddLog, FinishOptions, GetJobScheduler, InvokeLuaScript, KeepCount, MoveToFinished,
+        UpdateJobScheduler, UpdateProgess,
     },
     queue::QueueName,
-    scheduler::compute_cron_next_millis,
+    scheduler::{compute_cron_next_millis, compute_next_millis},
 };
 
-/// A unit of work obtained from the worker instance to be
-/// processed. Call done() or failed() to store results.
+/// A unit of work obtained from the worker instance to be processed.
+/// Call done() or failed() to store results.
 /// Dropping will cause the job to be stale (no AsyncDrop).
 pub struct JobWorkHandle<D, R> {
     queue_name: QueueName,
@@ -33,17 +33,15 @@ pub struct JobWorkHandle<D, R> {
     id: String,
     name: String,
     data: D,
-    phantom: PhantomData<R>, // Result
+    phantom: PhantomData<R>,
     has_been_finished: bool,
-    // The lock token should never be leaked. It will be
-    // refreshed by the worker as long as it is referenced.
     lock_token: Arc<str>,
     worker_name: String,
     _semaphore_permit: OwnedSemaphorePermit,
-    /// If this job was produced by a scheduler, this is the scheduler id.
-    repeat_job_key: Option<String>,
-    /// Raw JSON of the job options, used for scheduler updates.
-    opts_json: Option<String>,
+    /// Scheduler that produced this job, if any.
+    scheduled_by: Option<SchedulerId>,
+    /// Job options as stored on the job hash, used for scheduler updates.
+    options: Option<JobOptions>,
 }
 
 impl<D, R> JobWorkHandle<D, R> {
@@ -56,8 +54,8 @@ impl<D, R> JobWorkHandle<D, R> {
         data: D,
         lock_token: Arc<str>,
         worker_name: String,
-        repeat_job_key: Option<String>,
-        opts_json: Option<String>,
+        scheduled_by: Option<SchedulerId>,
+        options: Option<JobOptions>,
     ) -> Self {
         Self {
             queue_name,
@@ -70,8 +68,8 @@ impl<D, R> JobWorkHandle<D, R> {
             lock_token,
             worker_name,
             has_been_finished: false,
-            repeat_job_key,
-            opts_json,
+            scheduled_by,
+            options,
         }
     }
 
@@ -84,8 +82,8 @@ impl<D, R> JobWorkHandle<D, R> {
     pub fn name(&self) -> &str {
         &self.name
     }
+
     /// Mark a job as done or failed, depending on the `Result` value.
-    /// If a job is marked as failed, it might be retried, depending on the Job options.
     pub async fn finished<'a>(
         mut self,
         result: Result<&'a R, &'a str>,
@@ -99,9 +97,9 @@ impl<D, R> JobWorkHandle<D, R> {
             job_id: &self.id,
             timestamp: Utc::now(),
             result,
-            options: MoveToFinishedOptions {
+            options: FinishOptions {
                 lock_token: self.lock_token.to_string(),
-                keep_jobs: KeepJobsConfig {
+                keep: KeepCount {
                     count: -1,
                     age: None,
                 },
@@ -120,11 +118,11 @@ impl<D, R> JobWorkHandle<D, R> {
         let mut con = self.pool.get().await?;
         move_to_finished.call(&mut con).await?;
 
-        // If this job belongs to a scheduler, schedule the next iteration (best-effort).
-        if let Some(ref scheduler_id) = self.repeat_job_key {
+        if let Some(ref scheduler_id) = self.scheduled_by {
             if let Err(e) = self.update_scheduler_next_job(scheduler_id).await {
                 warn!(
-                    "Failed to update scheduler {scheduler_id} after job {}: {e:?}",
+                    "Failed to update scheduler {} after job {}: {e:?}",
+                    scheduler_id.as_ref(),
                     self.id
                 );
             }
@@ -135,11 +133,10 @@ impl<D, R> JobWorkHandle<D, R> {
 
     async fn update_scheduler_next_job(
         &self,
-        scheduler_id: &str,
+        scheduler_id: &SchedulerId,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let mut con = self.pool.get().await?;
 
-        // 1. Fetch scheduler metadata.
         let info = GetJobScheduler {
             queue: &self.queue_name,
             scheduler_id,
@@ -148,49 +145,44 @@ impl<D, R> JobWorkHandle<D, R> {
         .await?
         .ok_or("scheduler not found")?;
 
-        // 2. Stop if endDate reached or limit exceeded (optional early-exit).
-        let now = Utc::now().timestamp_millis();
-        if let Some(end_date) = info.fields.iter().find(|(k, _)| k == "endDate").and_then(|(_, v)| v.parse::<i64>().ok()) {
-            if now > end_date {
+        let now = Utc::now();
+        let now_ms = now.timestamp_millis();
+
+        if let Some(end) = info.window.end {
+            if now > end {
                 return Ok(());
             }
         }
-        if let Some(limit) = info.fields.iter().find(|(k, _)| k == "ic").and_then(|(_, v)| v.parse::<u64>().ok()) {
-            let max_limit = info.fields.iter().find(|(k, _)| k == "limit").and_then(|(_, v)| v.parse::<u64>().ok());
-            if let Some(max) = max_limit {
-                if limit >= max {
-                    return Ok(());
-                }
+        if let (Some(limit), Some(ic)) = (info.window.limit, info.iteration_count) {
+            if ic >= limit {
+                return Ok(());
             }
         }
 
-        // 3. Compute next_millis.
-        let every = info.fields.iter().find(|(k, _)| k == "every").and_then(|(_, v)| v.parse::<u64>().ok());
-        let next_millis = if let Some(every) = every {
-            // Lua script recalculates for 'every' internally; any positive value is fine.
-            now + every as i64
-        } else if let Some(pattern) = info.fields.iter().find(|(k, _)| k == "pattern").map(|(_, v)| v.clone()) {
-            let tz = info.fields.iter().find(|(k, _)| k == "tz").map(|(_, v)| v.as_str());
-            compute_cron_next_millis(&pattern, tz, DateTime::from_timestamp_millis(now).unwrap_or_else(Utc::now))?
-        } else {
-            return Err("scheduler has no every or pattern".into());
+        let next_millis = match info.repeat {
+            Some(Repeat::Every { .. }) => {
+                // Lua script realigns "every" schedules.
+                now_ms + 1
+            }
+            Some(ref r @ Repeat::Cron { .. }) => match compute_next_millis(r, now) {
+                Ok(ms) => ms,
+                Err(_) => match r {
+                    Repeat::Cron { pattern, tz } => compute_cron_next_millis(pattern, *tz, now)?,
+                    _ => unreachable!(),
+                },
+            },
+            None => return Err("scheduler has no repeat rule".into()),
         };
 
-        // 4. Parse the stored opts so we can pass them to the update script.
-        let delayed_opts: JobOptions = if let Some(ref opts_json) = self.opts_json {
-            serde_json::from_str(opts_json).unwrap_or_default()
-        } else {
-            JobOptions::default()
-        };
+        let delayed_opts = self.options.clone().unwrap_or_default();
 
-        // 5. Call updateJobScheduler.
         let _ = UpdateJobScheduler {
             queue: &self.queue_name,
             scheduler_id,
             next_millis,
             delayed_data_json: "{}",
             delayed_opts: &delayed_opts,
-            timestamp: now,
+            timestamp: now_ms,
             prefix: self.queue_name.prefix(),
             producer_id: Some(&self.id),
         }
@@ -199,22 +191,22 @@ impl<D, R> JobWorkHandle<D, R> {
 
         Ok(())
     }
-    /// Mark job as done, by providing an `Ok()` value.
+
+    /// Mark job as done.
     pub async fn done(self, value: &R) -> Result<(), MoveToFinishedErr>
     where
         R: Serialize,
     {
         self.finished(Ok(value)).await
     }
-    /// Mark job as failed, by providing an `Err()` value.
-    /// Depending on the job options, a job might be rescheduled,
+    /// Mark job as failed.
     pub async fn failed(self, error: &str) -> Result<(), MoveToFinishedErr>
     where
         R: Serialize,
     {
         self.finished(Err(error)).await
     }
-    /// Add a log line without timestamp, get the number of log lines.
+    /// Add a log line, get the new log count.
     pub async fn log(&self, log_line: &str) -> Result<usize, AddLogError> {
         let add_log = AddLog {
             queue: &self.queue_name,
@@ -225,7 +217,7 @@ impl<D, R> JobWorkHandle<D, R> {
         let mut con = self.pool.get().await?;
         Ok(add_log.call(&mut con).await?.new_count)
     }
-    /// Add a log line with timestamp, get the number of log lines.
+    /// Add a log line with timestamp, get the new log count.
     pub async fn log_ts(&self, log_line: &str) -> Result<usize, AddLogError> {
         let new_log = format!(
             "{} {log_line}",
@@ -260,7 +252,7 @@ impl<D, R> Drop for JobWorkHandle<D, R> {
 // TODO: allow to fetch those datapoints from job
 #[allow(dead_code)]
 struct JobState<D, R> {
-    atm: Option<usize>, // attempts made
+    atm: Option<usize>,
     data: D,
     delay: Option<Duration>,
     failed_reason: Option<String>,

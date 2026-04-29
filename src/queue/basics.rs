@@ -1,21 +1,23 @@
 use std::fmt::Debug;
 
 use redis::AsyncCommands;
-use serde::{Serialize, de::DeserializeOwned};
 use serde::de::Error as _;
+use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{
-    JobSchedulerInfo, JobSchedulerTemplate,
-    error::{AddJobErr, AddJobSchedulerError, BasicRedisError, ObliterateError, PauseResumeError, RemoveJobSchedulerError},
+    Repeat, SchedulerId, SchedulerInfo, SchedulerTemplate, SchedulerWindow,
+    error::{
+        AddJobErr, AddJobSchedulerError, BasicRedisError, ObliterateError, PauseResumeError,
+        RemoveJobSchedulerError,
+    },
     job::{JobJoinHandle, JobOptions},
     luacommands::{
         AddDelayedJob, AddJobScheduler, AddJobSchedulerOk, AddPrioritizedJob, AddStandardJob,
-        GetJobScheduler, GetJobSchedulerOk, InvokeLuaScript, Obliterate, ObliterateOk, Pause,
-        PauseAction, RemoveJobScheduler,
+        GetJobScheduler, InvokeLuaScript, Obliterate, ObliterateOk, Pause, PauseAction,
+        RemoveJobScheduler,
     },
     queue::Queue,
-    scheduler::{RepeatOptions, compute_next_millis},
-    JobSchedulerOpts,
+    scheduler::compute_next_millis,
     worker::{Worker, WorkerArgs},
 };
 
@@ -24,10 +26,6 @@ where
     R: Debug + Clone + Send + DeserializeOwned + 'static,
 {
     /// Create a worker instance for processing jobs of this queue.
-    /// This will immediately start preloading jobs to be processed.
-    ///
-    /// Note that for picking up jobs, D must implement [serde::DeserializeOwned]
-    /// and R must implement [serde::Serialize].
     pub fn worker(&self, worker_args: WorkerArgs) -> Worker<D, R>
     where
         R: Send + Clone + Debug + DeserializeOwned + 'static,
@@ -39,10 +37,7 @@ where
         Worker::new(self.pool.clone(), self.name.clone(), worker_args)
     }
 
-    /// Stop processing jobs of a queue. Jobs already picked up will be
-    /// continued until completed or failed and delayed. Keep in mind,
-    /// that workers might pre-pull a few jobs depending on concurrency
-    /// settings. Those will still be processed as well.
+    /// Stop processing jobs of a queue.
     pub async fn pause(&self) -> Result<(), PauseResumeError> {
         let p = Pause {
             queue: &self.name,
@@ -64,8 +59,9 @@ where
         Ok(())
     }
 
-    /// Add a job with given options.
-    /// Go to [JobOptions] for documentation on the available options and default values.
+    /// Add a one-off job with the given options.
+    ///
+    /// Repeating jobs are configured via [`Self::upsert_job_scheduler`].
     pub async fn add_with(
         &self,
         job_name: &str,
@@ -75,60 +71,34 @@ where
     where
         D: Serialize,
     {
-        // If repeat options are present, create / update a job scheduler instead of a one-off job.
-        if let Some(ref repeat) = job_options.repeat {
-            let template = JobSchedulerTemplate {
-                name: job_name,
-                data,
-                opts: job_options,
-            };
-            let ok = self
-                .upsert_job_scheduler(
-                    &format!("{}:{}", self.name.as_str(), job_name),
-                    repeat,
-                    template,
-                )
-                .await
-                .map_err(|e| match e {
-                    AddJobSchedulerError::JobIdCollision => AddJobErr::SchedulerJobIdCollision,
-                    AddJobSchedulerError::JobSlotsBusy => AddJobErr::SchedulerJobSlotsBusy,
-                    AddJobSchedulerError::SerializationFailed(err) => AddJobErr::SerializationFailed(err),
-                    AddJobSchedulerError::RedisError(err) => AddJobErr::RedisError(err),
-                    AddJobSchedulerError::PoolError(err) => AddJobErr::PoolError(err),
-                })?;
-            return Ok(JobJoinHandle::new(
-                self.name.clone(),
-                self.pool.clone(),
-                ok.job_id,
-                self.event_system.clone(),
-            ));
-        }
-
         let mut con = self.pool.get().await?;
         let job_id = if job_options.delay.is_some() {
-            let c = AddDelayedJob {
+            AddDelayedJob {
                 queue: &self.name,
                 job_name,
                 data,
                 job_options,
-            };
-            c.call(&mut con).await?
+            }
+            .call(&mut con)
+            .await?
         } else if job_options.priority.is_some() {
-            let c = AddPrioritizedJob {
+            AddPrioritizedJob {
                 queue: &self.name,
                 job_name,
                 data,
                 job_options,
-            };
-            c.call(&mut con).await?
+            }
+            .call(&mut con)
+            .await?
         } else {
-            let c = AddStandardJob {
+            AddStandardJob {
                 queue: &self.name,
                 job_name,
                 data,
                 job_options,
-            };
-            c.call(&mut con).await?
+            }
+            .call(&mut con)
+            .await?
         };
 
         Ok(JobJoinHandle::new(
@@ -139,57 +109,43 @@ where
         ))
     }
 
-    /// Add a job with default options. See documentation of [JobOptions] for default values.
+    /// Add a one-off job with default options.
     pub async fn add(&self, job_name: &str, data: &D) -> Result<JobJoinHandle<D, R>, AddJobErr>
     where
         D: Serialize,
     {
-        let job_options: JobOptions = Default::default();
-        self.add_with(job_name, data, &job_options).await
+        self.add_with(job_name, data, &JobOptions::default()).await
     }
 
     /// Create or update a job scheduler.
     ///
-    /// `scheduler_id` is a unique identifier for this scheduler (e.g. `"daily-report"`).
-    /// `repeat` describes the repetition rule (`every` ms or a cron `pattern`).
-    /// `template` optionally overrides the default job name / data / options for every
-    /// produced job.
-    ///
-    /// Returns the id and delay of the first (or updated) delayed job.
+    /// `scheduler_id` is a unique identifier for this scheduler.
+    /// `repeat` is the repetition rule (`Every` interval or `Cron` pattern).
+    /// `window` constrains start / end / limit for the scheduler.
+    /// `template` describes the name / data / options of every produced job.
     pub async fn upsert_job_scheduler(
         &self,
-        scheduler_id: &str,
-        repeat: &RepeatOptions,
-        template: JobSchedulerTemplate<'_, D>,
+        scheduler_id: &SchedulerId,
+        repeat: &Repeat,
+        window: &SchedulerWindow,
+        template: SchedulerTemplate<'_, D>,
     ) -> Result<AddJobSchedulerOk, AddJobSchedulerError>
     where
         D: Serialize,
     {
         let now = chrono::Utc::now();
-        let next_millis = compute_next_millis(repeat, now).map_err(|e| {
-            AddJobSchedulerError::SerializationFailed(serde_json::Error::custom(e))
-        })?;
-
-        let scheduler_opts = JobSchedulerOpts {
-            name: template.name.into(),
-            tz: repeat.tz.clone(),
-            pattern: repeat.pattern.clone(),
-            end_date: repeat.end_date.map(|dt| dt.timestamp_millis()),
-            every: repeat.every,
-            offset: repeat.offset,
-            start_date: repeat.start_date.map(|dt| dt.timestamp_millis()),
-            limit: repeat.limit,
-        };
+        let next_millis = compute_next_millis(repeat, now)
+            .map_err(|e| AddJobSchedulerError::SerializationFailed(serde_json::Error::custom(e)))?;
 
         let mut con = self.pool.get().await?;
         let cmd = AddJobScheduler {
             queue: &self.name,
-            job_scheduler_id: scheduler_id,
+            scheduler_id,
             next_millis,
-            scheduler_opts: &scheduler_opts,
-            template_data: template.data,
-            template_opts: template.opts,
+            repeat,
+            window,
             delayed_opts: template.opts,
+            template,
             producer_key: None,
         };
         cmd.call(&mut con).await
@@ -198,68 +154,37 @@ where
     /// Remove a scheduler and its pending next job.
     pub async fn remove_job_scheduler(
         &self,
-        scheduler_id: &str,
+        scheduler_id: &SchedulerId,
     ) -> Result<(), RemoveJobSchedulerError> {
         let mut con = self.pool.get().await?;
         let cmd = RemoveJobScheduler {
             queue: &self.name,
-            job_scheduler_id: scheduler_id,
+            scheduler_id,
         };
         cmd.call(&mut con).await
     }
 
     /// List all job schedulers for this queue.
-    pub async fn get_job_schedulers(&self) -> Result<Vec<JobSchedulerInfo>, BasicRedisError> {
+    pub async fn get_job_schedulers(&self) -> Result<Vec<SchedulerInfo>, BasicRedisError> {
         let mut con = self.pool.get().await?;
         let ids: Vec<String> = con.zrange(self.name.repeat(), 0, -1).await?;
         let mut result = Vec::with_capacity(ids.len());
-        for id in ids {
+        for raw_id in ids {
+            let Ok(id) = SchedulerId::try_new(raw_id) else {
+                continue;
+            };
             let cmd = GetJobScheduler {
                 queue: &self.name,
                 scheduler_id: &id,
             };
-            if let Some(GetJobSchedulerOk { fields, next_millis }) =
-                cmd.call(&mut con).await.ok().flatten()
-            {
-                let mut info = JobSchedulerInfo {
-                    id,
-                    name: None,
-                    tz: None,
-                    pattern: None,
-                    every: None,
-                    end_date: None,
-                    start_date: None,
-                    limit: None,
-                    offset: None,
-                    iteration_count: None,
-                    next_millis,
-                };
-                let mut it = fields.into_iter();
-                while let Some((k, v)) = it.next() {
-                    match k.as_str() {
-                        "name" => info.name = Some(v),
-                        "tz" => info.tz = Some(v),
-                        "pattern" => info.pattern = Some(v),
-                        "every" => info.every = v.parse().ok(),
-                        "endDate" => info.end_date = v.parse().ok(),
-                        "startDate" => info.start_date = v.parse().ok(),
-                        "limit" => info.limit = v.parse().ok(),
-                        "offset" => info.offset = v.parse().ok(),
-                        "ic" => info.iteration_count = v.parse().ok(),
-                        _ => {}
-                    }
-                }
+            if let Some(info) = cmd.call(&mut con).await.ok().flatten() {
                 result.push(info);
             }
         }
         Ok(result)
     }
 
-    /**
-    Wipe this queue from existence.
-    This means all jobs, pending, done, failed, etc, as well as all markers and meta information.
-    It makes multiple trips to Redis, as it is unfeasable of deleting potentially millions of jobs in a single lua script execution.
-    */
+    /// Wipe this queue from existence.
     pub async fn obliterate(self) -> Result<(), ObliterateError> {
         self.pause().await?;
         let mut con = self.pool.get().await?;

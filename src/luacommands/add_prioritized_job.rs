@@ -4,6 +4,7 @@ use serde::Serialize;
 
 use crate::{
     JobOptions,
+    bullmq::options::WireJobOptions,
     error::AddJobErr,
     luacommands::{ADD_PRIORITIZED_JOB, InvokeLuaScript},
     queue::QueueName,
@@ -66,7 +67,10 @@ where
             .key(self.queue.priority_counter())
             .arg(rmp_serde::to_vec(&arguments).expect("should never fail"))
             .arg(payload_serialized)
-            .arg(rmp_serde::to_vec_named(self.job_options).expect("serializing never fails"));
+            .arg(
+                rmp_serde::to_vec_named(&WireJobOptions::from(self.job_options))
+                    .expect("serializing never fails"),
+            );
         Ok(invocation)
     }
 
