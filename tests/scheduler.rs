@@ -48,6 +48,10 @@ async fn redis_scheduler_every() {
         gap >= Duration::from_millis(450),
         "Second job arrived too early: gap was {gap:?}"
     );
+    assert!(
+        gap <= Duration::from_millis(600),
+        "Second job arrived too late: gap was {gap:?}"
+    );
     j2.done(&Output { output: 2 }).await.unwrap();
 }
 
@@ -83,7 +87,7 @@ async fn redis_scheduler_remove() {
 
     q.remove_job_scheduler(&id).await.unwrap();
 
-    sleep(Duration::from_millis(400)).await;
+    sleep(Duration::from_millis(350)).await;
     assert!(
         !w.has_next(),
         "Scheduler produced a job after it was removed"

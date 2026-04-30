@@ -1,6 +1,5 @@
 use std::string::FromUtf8Error;
 
-use croner::errors::CronError;
 use deadpool_redis::PoolError;
 use error_set::error_set;
 use redis::{RedisError, Value};
@@ -23,7 +22,7 @@ error_set! {
     /// Error from obtaining job scheduler
     pub JobSchedulerError := {
         /// Failed to parse Cron from job stored in Redis
-        #[display("cron parse error: {error} - \"{pattern}\"")]
+        #[display("cron parse error - \"{pattern}\": {error}")]
         CronError {
             error: croner::errors::CronError,
             pattern: String,

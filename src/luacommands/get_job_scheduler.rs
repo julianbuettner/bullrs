@@ -10,7 +10,6 @@ use crate::{
     error::JobSchedulerError,
     luacommands::{GET_JOB_SCHEDULER, InvokeLuaScript},
     queue::QueueName,
-    scheduler::CronError,
 };
 
 pub struct GetJobScheduler<'a> {
