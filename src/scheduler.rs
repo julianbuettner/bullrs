@@ -81,8 +81,6 @@ pub struct SchedulerInfo {
 
 #[derive(Debug, Error)]
 pub(crate) enum CronError {
-    #[error("cron parse: {0}")]
-    Parse(String),
     #[error("cron next-occurrence lookup: {0}")]
     Next(String),
 }
@@ -93,8 +91,6 @@ pub(crate) fn compute_cron_next_millis(
     tz: Option<Tz>,
     now: DateTime<Utc>,
 ) -> Result<i64, CronError> {
-    use croner::parser::{CronParser, Seconds};
-
     let next = if let Some(tz) = tz {
         let local_now = now.with_timezone(&tz);
         schedule

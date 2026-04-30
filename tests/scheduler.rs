@@ -1,6 +1,9 @@
 use bullrs::{JobOptions, Repeat, SchedulerId, SchedulerTemplate, SchedulerWindow, WorkerArgs};
 use ntest::timeout;
-use std::{str::FromStr, time::{Duration, Instant}};
+use std::{
+    str::FromStr,
+    time::{Duration, Instant},
+};
 use tokio::time::sleep;
 mod setup;
 use setup::*;
@@ -131,7 +134,11 @@ async fn redis_scheduler_limit() {
         if w.has_next() {
             let job = w.next().await.expect("some").expect("ok");
             count += 1;
-            job.done(&Output { output: count as i64 }).await.unwrap();
+            job.done(&Output {
+                output: count as i64,
+            })
+            .await
+            .unwrap();
         } else {
             sleep(Duration::from_millis(50)).await;
         }
@@ -161,6 +168,7 @@ async fn redis_scheduler_cron_every_second() {
         ..Default::default()
     };
 
+    let start = Instant::now();
     q.upsert_job_scheduler(
         &id,
         &repeat,
@@ -181,4 +189,14 @@ async fn redis_scheduler_cron_every_second() {
     let j2 = w.next().await.expect("some").expect("ok");
     assert_eq!(j2.name(), "cron-tick");
     j2.done(&Output { output: 2 }).await.unwrap();
+
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed >= Duration::from_millis(2000),
+        "Expected to take at least two seconds, took {elapsed:?}"
+    );
+    assert!(
+        elapsed <= Duration::from_millis(2200),
+        "Expected to take not much more than two seconds, took {elapsed:?}"
+    );
 }

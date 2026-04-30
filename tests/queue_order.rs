@@ -1,5 +1,4 @@
 use bullrs::{JobOptions, WorkerArgs};
-use deadpool_redis::{Config, Pool, Runtime};
 use ntest::timeout;
 mod setup;
 use setup::*;

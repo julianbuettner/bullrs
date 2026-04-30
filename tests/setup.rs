@@ -43,7 +43,7 @@ fn uglydrop(name: QueueName) {
     let pool = get_pool();
     rt.block_on(async move {
         let q = Queue::<Input, Output>::new(pool, name.clone());
-        q.obliterate().await;
+        q.obliterate().await.unwrap();
     });
 }
 
