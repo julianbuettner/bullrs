@@ -1,5 +1,6 @@
 use std::string::FromUtf8Error;
 
+use croner::errors::CronError;
 use deadpool_redis::PoolError;
 use error_set::error_set;
 use redis::{RedisError, Value};
@@ -18,6 +19,16 @@ error_set! {
         /// Stalled-job recovery failed.
         MoveStalledToWait(MoveStalledToWaitError),
     }
+
+    /// Error from obtaining job scheduler
+    pub JobSchedulerError := {
+        /// Failed to parse Cron from job stored in Redis
+        #[display("cron parse error: {error} - \"{pattern}\"")]
+        CronError {
+            error: croner::errors::CronError,
+            pattern: String,
+        }
+    } || BasicRedisError
 
     /// Error from pausing or resuming a queue.
     pub PauseResumeError := BasicRedisError

@@ -1,6 +1,6 @@
 use bullrs::{JobOptions, Repeat, SchedulerId, SchedulerTemplate, SchedulerWindow, WorkerArgs};
 use ntest::timeout;
-use std::time::{Duration, Instant};
+use std::{str::FromStr, time::{Duration, Instant}};
 use tokio::time::sleep;
 mod setup;
 use setup::*;
@@ -148,7 +148,7 @@ async fn redis_scheduler_cron_every_second() {
     let mut w = q.worker(WorkerArgs::default());
 
     let repeat = Repeat::Cron {
-        pattern: "*/1 * * * * *".into(),
+        pattern: croner::Cron::from_str("*/1 * * * * *").unwrap(),
         tz: None,
     };
     let id = SchedulerId::try_new("cron-tick").unwrap();

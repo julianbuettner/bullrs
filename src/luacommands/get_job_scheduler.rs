@@ -1,14 +1,16 @@
-use std::time::Duration;
+use std::{str::FromStr, time::Duration};
 
 use chrono::DateTime;
 use chrono_tz::Tz;
+use croner::Cron;
 use redis::Value;
 
 use crate::{
     Repeat, SchedulerId, SchedulerInfo, SchedulerWindow,
-    error::BasicRedisError,
+    error::JobSchedulerError,
     luacommands::{GET_JOB_SCHEDULER, InvokeLuaScript},
     queue::QueueName,
+    scheduler::CronError,
 };
 
 pub struct GetJobScheduler<'a> {
@@ -19,7 +21,7 @@ pub struct GetJobScheduler<'a> {
 impl<'a> InvokeLuaScript for GetJobScheduler<'a> {
     type RedisOutput = Value;
     type DomainOk = Option<SchedulerInfo>;
-    type DomainErr = BasicRedisError;
+    type DomainErr = JobSchedulerError;
 
     fn generate_invocation(&self) -> Result<redis::ScriptInvocation<'static>, Self::DomainErr> {
         let mut invocation = GET_JOB_SCHEDULER.prepare_invoke();
@@ -64,7 +66,12 @@ impl<'a> InvokeLuaScript for GetJobScheduler<'a> {
             match k.as_str() {
                 "name" => name = Some(v),
                 "tz" => tz_str = Some(v),
-                "pattern" => pattern = Some(v),
+                "pattern" => {
+                    pattern = Some(Cron::from_str(&v).map_err(|e| Self::DomainErr::CronError {
+                        error: e,
+                        pattern: v.to_string(),
+                    })?)
+                }
                 "every" => every = v.parse().ok(),
                 "offset" => offset = v.parse().ok(),
                 "startDate" => start_date = v.parse().ok(),

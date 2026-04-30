@@ -37,7 +37,7 @@ impl WireSchedulerOpts {
         WireSchedulerOpts {
             name: name.to_string(),
             tz,
-            pattern,
+            pattern: pattern.map(|p| p.to_string()),
             end_date: window.end.map(|dt| dt.timestamp_millis()),
             every,
             offset,
@@ -52,7 +52,8 @@ mod tests {
     use super::*;
     use chrono::TimeZone;
     use chrono_tz::Europe;
-    use std::time::Duration;
+    use croner::Cron;
+    use std::{str::FromStr, time::Duration};
 
     #[test]
     fn every_repeat_sets_only_every_and_offset() {
@@ -70,7 +71,7 @@ mod tests {
     #[test]
     fn cron_repeat_sets_pattern_and_tz_name() {
         let repeat = Repeat::Cron {
-            pattern: "0 9 * * *".into(),
+            pattern: Cron::from_str("0 9 * * *").unwrap(),
             tz: Some(Europe::Berlin),
         };
         let opts = WireSchedulerOpts::from_domain("daily", &repeat, &SchedulerWindow::default());

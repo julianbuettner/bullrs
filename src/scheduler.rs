@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
+use croner::Cron;
 use nutype::nutype;
 use thiserror::Error;
 
@@ -29,7 +30,7 @@ pub enum Repeat {
     /// `Some`, the cron expression is evaluated in that timezone.
     Cron {
         /// Cron pattern (Unix cron, optional seconds field).
-        pattern: String,
+        pattern: Cron,
         /// Timezone to evaluate the cron expression in (defaults to UTC).
         tz: Option<Tz>,
     },
@@ -88,16 +89,11 @@ pub(crate) enum CronError {
 
 /// Compute the next occurrence of a cron pattern after `now`.
 pub(crate) fn compute_cron_next_millis(
-    pattern: &str,
+    schedule: &Cron,
     tz: Option<Tz>,
     now: DateTime<Utc>,
 ) -> Result<i64, CronError> {
     use croner::parser::{CronParser, Seconds};
-
-    let parser = CronParser::builder().seconds(Seconds::Optional).build();
-    let schedule = parser
-        .parse(pattern)
-        .map_err(|e| CronError::Parse(format!("{e:?}")))?;
 
     let next = if let Some(tz) = tz {
         let local_now = now.with_timezone(&tz);
@@ -118,20 +114,17 @@ pub(crate) fn compute_cron_next_millis(
 ///
 /// For `Every` schedules, the Lua script realigns the value to the proper slot,
 /// so any monotonically-increasing value is acceptable.
-pub(crate) fn compute_next_millis(
-    repeat: &Repeat,
-    now: DateTime<Utc>,
-) -> Result<i64, CronError> {
+pub(crate) fn compute_next_millis(repeat: &Repeat, now: DateTime<Utc>) -> Result<i64, CronError> {
     match repeat {
-        Repeat::Every { interval, .. } => {
-            Ok(now.timestamp_millis() + interval.as_millis() as i64)
-        }
+        Repeat::Every { interval, .. } => Ok(now.timestamp_millis() + interval.as_millis() as i64),
         Repeat::Cron { pattern, tz } => compute_cron_next_millis(pattern, *tz, now),
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
     use chrono::TimeZone;
     use chrono_tz::Europe;
@@ -185,7 +178,8 @@ mod tests {
     fn compute_cron_next_millis_advances_to_next_minute() {
         // 12:34:00 UTC → next "* * * * *" minute boundary is 12:35:00.
         let now = Utc.with_ymd_and_hms(2026, 1, 1, 12, 34, 0).unwrap();
-        let next_ms = compute_cron_next_millis("* * * * *", None, now).unwrap();
+        let next_ms =
+            compute_cron_next_millis(&Cron::from_str("* * * * *").unwrap(), None, now).unwrap();
         let next = Utc.timestamp_millis_opt(next_ms).unwrap();
         assert_eq!(next, Utc.with_ymd_and_hms(2026, 1, 1, 12, 35, 0).unwrap());
     }
@@ -194,7 +188,8 @@ mod tests {
     fn compute_cron_next_millis_supports_optional_seconds_field() {
         // "*/2 * * * * *" = every 2 seconds.
         let now = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 1).unwrap();
-        let next_ms = compute_cron_next_millis("*/2 * * * * *", None, now).unwrap();
+        let next_ms =
+            compute_cron_next_millis(&Cron::from_str("*/2 * * * * *").unwrap(), None, now).unwrap();
         let next = Utc.timestamp_millis_opt(next_ms).unwrap();
         assert_eq!(next, Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 2).unwrap());
     }
@@ -203,15 +198,13 @@ mod tests {
     fn compute_cron_next_millis_evaluates_in_tz() {
         // "0 9 * * *" daily 09:00 in Berlin (CET, UTC+1 in January) = 08:00 UTC.
         let now = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
-        let next_ms = compute_cron_next_millis("0 9 * * *", Some(Europe::Berlin), now).unwrap();
+        let next_ms = compute_cron_next_millis(
+            &Cron::from_str("0 9 * * *").unwrap(),
+            Some(Europe::Berlin),
+            now,
+        )
+        .unwrap();
         let next = Utc.timestamp_millis_opt(next_ms).unwrap();
         assert_eq!(next, Utc.with_ymd_and_hms(2026, 1, 1, 8, 0, 0).unwrap());
-    }
-
-    #[test]
-    fn compute_cron_next_millis_invalid_pattern_errors() {
-        let now = Utc.timestamp_millis_opt(0).unwrap();
-        let err = compute_cron_next_millis("definitely not cron", None, now).unwrap_err();
-        assert!(matches!(err, CronError::Parse(_)));
     }
 }
