@@ -118,15 +118,14 @@ impl<D, R> JobWorkHandle<D, R> {
         let mut con = self.pool.get().await?;
         move_to_finished.call(&mut con).await?;
 
-        if let Some(ref scheduler_id) = self.scheduled_by {
-            if let Err(e) = self.update_scheduler_next_job(scheduler_id).await {
+        if let Some(ref scheduler_id) = self.scheduled_by
+            && let Err(e) = self.update_scheduler_next_job(scheduler_id).await {
                 warn!(
                     "Failed to update scheduler {} after job {}: {e:?}",
                     scheduler_id.as_ref(),
                     self.id
                 );
             }
-        }
 
         Ok(())
     }
@@ -148,16 +147,14 @@ impl<D, R> JobWorkHandle<D, R> {
         let now = Utc::now();
         let now_ms = now.timestamp_millis();
 
-        if let Some(end) = info.window.end {
-            if now > end {
+        if let Some(end) = info.window.end
+            && now > end {
                 return Ok(());
             }
-        }
-        if let (Some(limit), Some(ic)) = (info.window.limit, info.iteration_count) {
-            if ic >= limit {
+        if let (Some(limit), Some(ic)) = (info.window.limit, info.iteration_count)
+            && ic >= limit {
                 return Ok(());
             }
-        }
 
         let next_millis = match info.repeat {
             Some(Repeat::Every { .. }) => {
