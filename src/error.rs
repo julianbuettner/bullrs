@@ -24,7 +24,9 @@ error_set! {
         /// Failed to parse Cron from job stored in Redis
         #[display("cron parse error - \"{pattern}\": {error}")]
         CronError {
+            /// Error as emitted by croner
             error: croner::errors::CronError,
+            /// Invalid pattern which was read from Redis
             pattern: String,
         }
     } || BasicRedisError

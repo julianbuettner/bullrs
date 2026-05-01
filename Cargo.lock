@@ -424,8 +424,7 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 [[package]]
 name = "error_set"
 version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "769f9f87d305e0d64bcb6a8459021e9be27e145c14b8287abcc328954f92e552"
+source = "git+https://github.com/julianbuettner/error_set.git#12dda7ed37108d74456d89f88667c08b936c54fd"
 dependencies = [
  "error_set_impl",
 ]
@@ -433,8 +432,7 @@ dependencies = [
 [[package]]
 name = "error_set_impl"
 version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31799fcd4d4ee7ad6af27ca9ec307733d57cce0e137e38dec7e196b2ae75dd2c"
+source = "git+https://github.com/julianbuettner/error_set.git#12dda7ed37108d74456d89f88667c08b936c54fd"
 dependencies = [
  "proc-macro2",
  "quote",

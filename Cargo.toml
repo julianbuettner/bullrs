@@ -18,7 +18,7 @@ chrono-tz = "0.10"
 croner = "3"
 dashmap = "6.1.0"
 deadpool-redis = { version = "0.21.1", features = ["rt_tokio_1"] }
-error_set = "0.9.1"
+error_set = { git = "https://github.com/julianbuettner/error_set.git" }
 humantime = "2.2.0"
 lazy_static = "1.5.0"
 nanoid = "0.4.0"
