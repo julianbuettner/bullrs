@@ -21,7 +21,6 @@ pub async fn lock_refresh(
     lock_duration: Duration,
 ) {
     let refresh_interval = lock_duration / 2;
-    let lock_duration_ms = lock_duration.as_millis() as u64;
 
     debug!("start");
     while shutdown_switch.running() {

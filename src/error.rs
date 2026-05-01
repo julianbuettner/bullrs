@@ -19,6 +19,16 @@ error_set! {
         MoveStalledToWait(MoveStalledToWaitError),
     }
 
+    /// Error from obtaining job scheduler
+    pub JobSchedulerError := {
+        /// Failed to parse Cron from job stored in Redis
+        #[display("cron parse error - \"{pattern}\": {error}")]
+        CronError {
+            error: croner::errors::CronError,
+            pattern: String,
+        }
+    } || BasicRedisError
+
     /// Error from pausing or resuming a queue.
     pub PauseResumeError := BasicRedisError
 
@@ -72,6 +82,26 @@ error_set! {
     /// Error from updating job progress.
     pub UpdateProgressError := BasicJobNotFound || BasicRedisError
 
+    /// Error from adding a job scheduler.
+    pub AddJobSchedulerError := {
+        /// A job with the computed ID already exists and could not be replaced.
+        #[display("scheduler job ID collision")]
+        JobIdCollision,
+        /// Both the current and next time slot already have existing jobs.
+        #[display("scheduler job slots busy")]
+        JobSlotsBusy,
+        /// Serialization of job data or options failed.
+        #[display("failed to serialize: {0:?}")]
+        SerializationFailed(serde_json::Error),
+    } || BasicRedisError
+
+    /// Error from removing a job scheduler.
+    pub RemoveJobSchedulerError := {
+        /// No scheduler with the given ID exists.
+        #[display("job scheduler not found")]
+        NotFound,
+    } || BasicRedisError
+
     /// Error from checking whether a job has finished.
     pub IsFinishedError := BasicRedisError
 
@@ -79,6 +109,7 @@ error_set! {
     pub JobAwaitError := {
         /// The worker called `failed()` on this job.
         #[display("job failed: {reason}")]
+        #[allow(missing_docs)]
         JobFailed {
             reason: String,
         },
@@ -109,12 +140,19 @@ error_set! {
         /// Parent key was expected but missing.
         #[display("parent key is missing")]
         MissingParentKey,
+        /// Scheduler job ID collision.
+        #[display("scheduler job ID collision")]
+        SchedulerJobIdCollision,
+        /// Scheduler job slots busy.
+        #[display("scheduler job slots busy")]
+        SchedulerJobSlotsBusy,
     } || BasicRedisError
 
     /// The referenced job does not exist (anymore).
     BasicJobNotFound := {
         /// Job not found in the queue.
         #[display("job \"{job_id}\" in queue \"{}\" doesn't exist (anymore)", queue_name.as_str())]
+        #[allow(missing_docs)]
         JobNotFound {
             job_id: String,
             queue_name: QueueName,
@@ -131,12 +169,15 @@ error_set! {
         RedisStringInvalid(FromUtf8Error),
         /// Expected a hash map but got something else.
         #[display("lua job did not return hash map as expected: {value:?}")]
+        #[allow(missing_docs)]
         UnexpectedRedisValue { value: Value },
         /// Lua script returned unexpected values.
         #[display("Unexpected lua script return values: {} {} {} - {:?}", v.1, v.2, v.3, v.0)]
+        #[allow(missing_docs)]
         UnexpectedLuaOutput{ v: (Value, String, u64, i64) },
         /// Timestamp could not be interpreted.
         #[display("Bad timestamp: {ts}")]
+        #[allow(missing_docs)]
         BadTimestamp{ ts: i64 },
     }
 }

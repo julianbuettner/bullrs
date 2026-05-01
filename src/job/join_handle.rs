@@ -1,4 +1,4 @@
-use std::{fmt::Debug, marker::PhantomData, time::Duration};
+use std::{fmt::Debug, marker::PhantomData, sync::Arc, time::Duration};
 
 use deadpool_redis::Pool;
 use serde::de::DeserializeOwned;
@@ -7,7 +7,7 @@ use tracing::{debug, trace, warn};
 
 use crate::{
     error::JobAwaitError,
-    event_system::QueueEvent,
+    event_system::{EventSystem, QueueEvent},
     luacommands::{InvokeLuaScript, IsFinished, IsFinishedOk},
     queue::QueueName,
 };
@@ -22,7 +22,7 @@ pub struct JobJoinHandle<D, R: Debug + Clone> {
     queue_name: QueueName,
     pool: Pool,
     id: String,
-    event_rx: broadcast::Receiver<QueueEvent<R>>,
+    event_system: Arc<EventSystem<R>>,
     phantom: PhantomData<D>,
 }
 
@@ -34,13 +34,13 @@ where
         queue_name: QueueName,
         pool: Pool,
         id: String,
-        event_rx: broadcast::Receiver<QueueEvent<R>>,
+        event_system: Arc<EventSystem<R>>,
     ) -> Self {
         Self {
             queue_name,
             pool,
             id,
-            event_rx,
+            event_system,
             phantom: PhantomData,
         }
     }
@@ -58,7 +58,7 @@ where
     ///
     /// Returns `Ok(R)` on success or `Err(JobAwaitError)` on failure.
     pub async fn result(self) -> Result<R, JobAwaitError> {
-        let mut event_rx = self.event_rx;
+        let mut event_rx = self.event_system.subscribe();
         let pool = self.pool;
         let queue_name = self.queue_name;
         let id = self.id;
@@ -123,8 +123,6 @@ where
     R: DeserializeOwned,
 {
     loop {
-        tokio::time::sleep(POLL_INTERVAL).await;
-
         let mut con = match pool.get().await {
             Ok(con) => con,
             Err(deadpool_redis::PoolError::Closed) => {
@@ -132,6 +130,7 @@ where
             }
             Err(e) => {
                 warn!("Poll for job {job_id}: pool error, retrying: {e}");
+                tokio::time::sleep(POLL_INTERVAL).await;
                 continue;
             }
         };
@@ -159,5 +158,6 @@ where
                 warn!("Poll for job {job_id}: redis error, retrying: {e}");
             }
         }
+        tokio::time::sleep(POLL_INTERVAL).await;
     }
 }

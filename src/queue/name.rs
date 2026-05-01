@@ -113,6 +113,9 @@ impl QueueName {
     pub(crate) fn metrics(&self) -> String {
         format!("bull:{}:metrics", self.0)
     }
+    pub(crate) fn repeat(&self) -> String {
+        format!("bull:{}:repeat", self.0)
+    }
     pub(crate) fn base(&self) -> String {
         format!("bull:{}:", self.0)
     }

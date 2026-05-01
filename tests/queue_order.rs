@@ -1,8 +1,5 @@
-use bullrs::{JobOptions, Queue, WorkerArgs};
-use deadpool_redis::{Config, Pool, Runtime};
-use nanoid::nanoid;
+use bullrs::{JobOptions, WorkerArgs};
 use ntest::timeout;
-use serde::{Deserialize, Serialize};
 mod setup;
 use setup::*;
 

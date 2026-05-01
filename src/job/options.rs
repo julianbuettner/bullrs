@@ -2,130 +2,119 @@ use std::time::Duration;
 
 use bon::Builder;
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize, Serialize)]
-pub enum BackoffType {
-    /// After try n fails, wait delay * (n ^ 2) before retrying.
-    Exponential,
-    /// After try n fails, wait delay * n before retrying.
-    Fixed,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct BackoffOptions {
-    /// Delay after next try for fixed backoff, or basis duration
-    /// for calculating exponential backoff. It makes no sense to not
-    /// provide a delay, but having it optional maintains compatibility with BullMQ.
-    /// In this case, retries would happen instant.
-    #[serde(with = "crate::milliserde::duration_millis_option")]
-    pub delay: Option<Duration>,
-    /// Choose between exponential and fixed backoff.
-    pub r#type: BackoffType,
-    /// Add a random factor to the delay, for a jitter
-    /// of 0.1 (10%) the delay will be between 0.9 * original delay
-    /// and 1.1 * original delay. This can be useful to distribute
-    /// retries over time, if many jobs failed at once (thundering herd problem).
-    pub jitter: Option<f32>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
+/// Retry-backoff strategy for failed jobs.
+#[derive(Debug, Clone)]
 pub enum Backoff {
-    #[serde(with = "crate::milliserde::duration_millis")]
-    Number(Duration),
-    BackoffOptions(BackoffOptions),
+    /// Wait `delay` before each retry.
+    Fixed {
+        /// Constant delay between retries.
+        delay: Duration,
+    },
+    /// Exponential backoff: `base * 2^(attempt-1)`. Optional jitter as a fraction
+    /// (e.g. `0.1` ⇒ ±10%).
+    Exponential {
+        /// Base delay used for the first retry.
+        base: Duration,
+        /// Optional jitter factor (0.0–1.0).
+        jitter: Option<f32>,
+    },
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct ParentOptions {
-    /// ID of the parent
+/// Reference to a parent job in a flow.
+#[derive(Debug, Clone)]
+pub struct ParentRef {
+    /// Parent job ID.
     pub id: String,
-    // Queue name in which the parent is placed,
-    // including namespace separator, colon.
-    queue: String,
+    /// Fully-qualified queue key of the parent (BullMQ-style).
+    pub queue: String,
 }
 
-#[derive(Debug, Serialize)]
-pub enum KeepJobs {
-    /// How many jobs to keep after processing
-    Count(usize),
-    /// Just keep or delete job after processing
-    Bool(bool),
-    /// If providing both values,
-    /// jobs will be cleared for both configurations.
-    Config {
-        #[serde(with = "crate::milliserde::duration_millis_option")]
-        age: Option<Duration>,
-        count: Option<usize>,
+/// How long completed / failed jobs are retained.
+#[derive(Debug, Clone)]
+pub enum Retain {
+    /// Keep all jobs forever.
+    Forever,
+    /// Drop jobs as soon as they finish.
+    Drop,
+    /// Keep the most recent N jobs.
+    LastN(usize),
+    /// Keep jobs newer than `age`.
+    OlderThan(Duration),
+    /// Keep jobs satisfying both bounds (count and age).
+    Both {
+        /// Maximum number of jobs to keep.
+        count: usize,
+        /// Maximum age of jobs to keep.
+        age: Duration,
     },
 }
 
 /// Configure enqueue and retry behaviour of a job.
-#[derive(Default, Debug, Serialize, Builder)]
+///
+/// Repeating / scheduled jobs are configured via
+/// [`Queue::upsert_job_scheduler`](crate::Queue::upsert_job_scheduler) — they
+/// are not part of `JobOptions`.
+#[derive(Default, Debug, Clone, Builder)]
 pub struct JobOptions {
-    /// Maximum tries before considering a job failed. Will be tried at least once, even for `Some(0)`.
+    /// Maximum tries before considering a job failed. Will be tried at least once,
+    /// even for `Some(0)`.
     pub attempts: Option<usize>,
 
-    /// Describe _when_ a job should be retried on failure (attempts > 1),
-    /// With more than one attempt configured and no backoff defined, the job is directly retried.
-    /// This is rarely what you would want, so consider configuring a backoff.
+    /// Describe _when_ a job should be retried on failure (attempts > 1).
+    /// With more than one attempt configured and no backoff defined, the job is
+    /// directly retried.
     pub backoff: Option<Backoff>,
 
-    /// Basis delay for exponential backoff or delay between linear retries.
-    #[serde(with = "crate::milliserde::duration_millis_option")]
+    /// Initial delay before the job becomes available to a worker.
     pub delay: Option<Duration>,
 
-    /// Overwrite JobID. By default, every job gets an auto incremented
-    /// integer (compare to PostgreSQL Serial), but you can define any string.
-    /// If a job with the given id already exists, it is not added. Use
-    /// the deduplication feature for deduplication.
+    /// Overwrite the auto-generated job ID. If a job with the given id already
+    /// exists, it is not added.
     pub job_id: Option<String>,
 
-    /// Keep only the N newest logs of a job. `None` keeps all logs.
-    #[serde(rename = "kl")]
+    /// Keep only the N newest log entries of a job. `None` keeps all logs.
     pub limit_logs: Option<usize>,
 
-    /// Last In First Out, makes rarely sense.
+    /// Last In First Out — push to the front of the wait list instead of the back.
     pub lifo: Option<bool>,
 
-    /// Configure parent job relation
-    pub parent: Option<ParentOptions>,
+    /// Configure parent job relation.
+    pub parent: Option<ParentRef>,
 
-    /// No priority means highest priority. Higher numbers
-    /// mean lower priority. Using priority comes at a cost though.
-    /// A sorted set (compare to datastructure heap) has to be maintained.
-    /// Adding and popping jobs is in _O(log(n))_ instead of _O(1)_.
-    /// `None` has highest priority, then Some(0) and the lowest possible
-    /// priority is Some(2_097_152).
+    /// No priority means highest priority. Higher numbers mean lower priority.
+    /// Using priority comes at a cost (sorted-set maintenance — `O(log n)` instead
+    /// of `O(1)`). `None` is highest priority; `Some(0)` next; max is
+    /// `Some(2_097_152)`.
     pub priority: Option<usize>,
 
-    /// When and how to keep jobs after completing
-    pub remove_on_complete: Option<KeepJobs>,
+    /// When and how to keep jobs after completing.
+    pub remove_on_complete: Option<Retain>,
 
-    /// When and how to keep jobs after failing and exceeding all attempts
-    pub remove_on_fail: Option<KeepJobs>,
+    /// When and how to keep jobs after failing and exceeding all attempts.
+    pub remove_on_fail: Option<Retain>,
 
-    // repeat skipped for now
-    // repeatJobKey skipped for now
-    /// How many bytes is the job data allowed to have
+    /// Maximum payload size in bytes.
     pub size_limit: Option<usize>,
 
-    /// Maximum line count the stack is allowed to have
+    /// Maximum line count for stack traces.
     pub stack_trace_limit: Option<usize>,
 
-    /// When was job created, usually set automatically.
-    #[serde(with = "crate::milliserde::timestamp_millis_option")]
+    /// Creation timestamp; defaults to now when the job is enqueued.
     pub timestamp: Option<DateTime<Utc>>,
 
-    /// Whether or not it's parent should continue on failure.
-    /// If set to false and the job fails, it's parent is marked as failed as well.
-    /// Failing parents can propagate recursively until the entire anchestor tree is
-    /// disappointed. Note that parents are only moved to failed once they are picked up
-    /// by a worker and the worker sees about the failed child.
-    #[serde(rename = "cpof")]
+    /// Whether the parent should continue on failure of this job.
     pub continue_parent_on_failure: Option<bool>,
 
-    /// I haven't yet looked into what this one does.
-    #[serde(rename = "de")]
-    pub deduplication_something: Option<String>,
+    /// Deduplication key (BullMQ debounce/dedup feature).
+    pub deduplication: Option<String>,
+}
+
+/// Rate-limit configuration: at most `max` jobs per `window`.
+#[derive(Debug, Clone, Copy)]
+pub struct RateLimit {
+    /// Maximum number of jobs allowed in `window`.
+    pub max: usize,
+    /// Sliding window duration.
+    pub window: Duration,
 }

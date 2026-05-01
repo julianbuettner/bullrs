@@ -1,14 +1,56 @@
 use std::{collections::HashMap, time::Duration};
 
-use crate::error::MoveToFinishedErr;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use thiserror::Error;
 
 use crate::{
+    RateLimit,
+    bullmq::{
+        move_to_finished::{WireKeepJobsConfig, WireMoveToFinishedOpts},
+        rate_limiter::WireRateLimiter,
+    },
+    error::MoveToFinishedErr,
     luacommands::{InvokeLuaScript, MOVE_TO_FINISHED},
     queue::QueueName,
 };
+
+/// Domain-side options for `move_to_finished`. Cryptic BullMQ field names
+/// (`fpof`/`cpof`/`idof`/`rdof`) are replaced with descriptive ones; the
+/// wire form is built at call time.
+#[derive(Debug, Clone)]
+pub struct FinishOptions {
+    /// Lock token issued when the job was moved to active.
+    pub lock_token: String,
+    /// How long to keep finished jobs.
+    pub keep: KeepCount,
+    /// Lock duration to refresh on the job.
+    pub lock_duration: Duration,
+    /// Maximum number of attempts the job is allowed.
+    pub attempts: usize,
+    /// Maximum size of the metrics ring buffer.
+    pub max_metrics_size: usize,
+    /// Whether to fail the parent on this job's failure.
+    pub fail_parent_on_fail: Option<bool>,
+    /// Whether the parent should continue on this job's failure.
+    pub continue_parent_on_failure: Option<bool>,
+    /// Whether to ignore this dependency on failure.
+    pub ignore_dependency_on_fail: Option<bool>,
+    /// Whether to remove this dependency on failure.
+    pub remove_dependency_on_fail: Option<bool>,
+    /// Worker name (for events).
+    pub worker_name: String,
+    /// Optional rate limiter.
+    pub limiter: Option<RateLimit>,
+}
+
+/// Bound on how many finished jobs to retain.
+#[derive(Debug, Clone, Copy)]
+pub struct KeepCount {
+    /// `-1` keeps all jobs.
+    pub count: i64,
+    /// Optional age bound.
+    pub age: Option<Duration>,
+}
 
 pub struct MoveToFinished<'a, R> {
     /// Name of the queue we are moving the job from
@@ -20,106 +62,9 @@ pub struct MoveToFinished<'a, R> {
     /// Result value (for completed jobs) or failure reason (for failed jobs)
     pub result: Result<&'a R, &'a str>,
     /// Options for the operation
-    pub options: MoveToFinishedOptions,
+    pub options: FinishOptions,
     /// Job fields to update
     pub job_fields: Option<HashMap<String, String>>,
-}
-
-#[derive(Debug, Clone, Copy, Serialize)]
-pub enum MoveToFinishedTarget {
-    #[serde(rename = "completed")]
-    Completed,
-    #[serde(rename = "failed")]
-    Failed,
-}
-
-impl MoveToFinishedTarget {
-    fn as_str(&self) -> &'static str {
-        match self {
-            MoveToFinishedTarget::Completed => "completed",
-            MoveToFinishedTarget::Failed => "failed",
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-pub struct MoveToFinishedOptions {
-    /// Lock token for the job
-    #[serde(rename = "token")]
-    pub lock_token: String,
-    /// How many jobs to keep after processing
-    #[serde(rename = "keepJobs")]
-    pub keep_jobs: KeepJobsConfig,
-    /// Lock duration in milliseconds
-    #[serde(with = "crate::milliserde::duration_millis", rename = "lockDuration")]
-    pub lock_duration: Duration,
-    /// Maximum attempts for the job
-    pub attempts: usize,
-    /// Maximum metrics size
-    #[serde(rename = "maxMetricsSize")]
-    pub max_metrics_size: usize,
-    /// Whether to fail parent on failure
-    #[serde(rename = "fpof")]
-    pub fail_parent_on_fail: Option<bool>,
-    /// Whether to continue parent on failure
-    #[serde(rename = "cpof")]
-    pub continue_parent_on_failure: Option<bool>,
-    /// Whether to ignore dependency on failure
-    #[serde(rename = "idof")]
-    pub ignore_dependency_on_fail: Option<bool>,
-    /// Whether to remove dependency on failure
-    #[serde(rename = "rdof")]
-    pub remove_dependency_on_fail: Option<bool>,
-    /// Name of the processing worker
-    #[serde(rename = "name")]
-    pub worker_name: String,
-    /// Rate limiter configuration
-    pub limiter: Option<RateLimiter>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct KeepJobsConfig {
-    pub count: i64,
-    #[serde(with = "crate::milliserde::duration_millis_option")]
-    pub age: Option<Duration>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct RateLimiter {
-    pub max: usize,
-    #[serde(with = "crate::milliserde::duration_millis")]
-    pub duration: Duration,
-}
-
-#[derive(Debug, Error)]
-pub enum MoveToFinishedErrXXXXXXXXX {
-    /// Missing key
-    #[error("job has not been found")]
-    MissingKey,
-    /// Missing lock
-    #[error("job lock doesn't exist (anymore?)")]
-    MissingLock,
-    /// Job not in active set
-    #[error("job was not in the active set")]
-    JobNotActive,
-    /// Job has pending children
-    #[error("job has pending children")]
-    JobHasPendingChildren,
-    /// Lock is not owned by this client
-    #[error("job lock is owned by other worker")]
-    LockNotOwned,
-    /// Job has failed children
-    #[error("job has failed children")]
-    JobHasFailedChildren,
-    /// Unexpected return value from redis script
-    #[error("lua script returned unexpected value: {0}")]
-    UnexpectedLuaExitCode(i64),
-    /// Failed to serialize job result
-    #[error("failed to serialize job result: {0:?}")]
-    Serialize(#[from] serde_json::Error),
-    /// Some error occured in the Redis protocol
-    #[error("something went wrong with redis: {0:?}")]
-    RedisError(#[from] redis::RedisError),
 }
 
 impl<'a, R> InvokeLuaScript for MoveToFinished<'a, R>
@@ -134,13 +79,29 @@ where
         let job_fields_bytes = if let Some(jf) = &self.job_fields {
             rmp_serde::to_vec_named(&jf).expect("rmp serde string hashmap should always succeed")
         } else {
-            // Very empty object
             Vec::new()
         };
         let target = if self.result.is_ok() {
             "completed"
         } else {
             "failed"
+        };
+
+        let wire = WireMoveToFinishedOpts {
+            token: self.options.lock_token.clone(),
+            keep_jobs: WireKeepJobsConfig {
+                count: self.options.keep.count,
+                age: self.options.keep.age,
+            },
+            lock_duration: self.options.lock_duration,
+            attempts: self.options.attempts,
+            max_metrics_size: self.options.max_metrics_size,
+            fail_parent_on_fail: self.options.fail_parent_on_fail,
+            continue_parent_on_failure: self.options.continue_parent_on_failure,
+            ignore_dependency_on_fail: self.options.ignore_dependency_on_fail,
+            remove_dependency_on_fail: self.options.remove_dependency_on_fail,
+            name: self.options.worker_name.clone(),
+            limiter: self.options.limiter.as_ref().map(WireRateLimiter::from),
         };
 
         let mut invocation = MOVE_TO_FINISHED.prepare_invoke();
@@ -177,10 +138,7 @@ where
             .arg(target)
             .arg("0") // Don't fetch next job
             .arg(self.queue.prefix())
-            .arg(
-                rmp_serde::to_vec_named(&self.options)
-                    .expect("Should always be able so serialize job options"),
-            )
+            .arg(rmp_serde::to_vec_named(&wire).expect("Should always be able so serialize"))
             .arg(job_fields_bytes);
         Ok(invocation)
     }

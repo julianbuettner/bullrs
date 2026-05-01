@@ -1,7 +1,9 @@
 #![warn(missing_docs)]
 #![doc = include_str!("../README.md")]
+mod bullmq;
 mod job;
 mod luacommands;
+mod scheduler;
 
 mod event_system;
 mod flowproducer;
@@ -17,9 +19,10 @@ mod worker;
 pub mod error;
 
 pub use event_system::QueueEvent;
-pub use job::{JobJoinHandle, JobOptions};
+pub use job::{ActiveJob, Backoff, JobOptions, JobJoinHandle, ParentRef, RateLimit, Retain};
 pub use progress::*;
 pub use queue::{InvalidQueueName, PreparedFlowJob, Queue, QueueName};
+pub use scheduler::{Repeat, SchedulerId, SchedulerInfo, SchedulerTemplate, SchedulerWindow};
 pub use worker::{Worker, WorkerArgs};
 
 pub use deadpool_redis;

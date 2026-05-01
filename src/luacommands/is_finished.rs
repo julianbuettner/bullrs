@@ -40,7 +40,7 @@ impl<'a> InvokeLuaScript for IsFinished<'a> {
 
     fn map_value(&self, value: Self::RedisOutput) -> Result<Self::DomainOk, Self::DomainErr> {
         match &value {
-            Value::Array(arr) if arr.len() >= 1 => {
+            Value::Array(arr) if !arr.is_empty() => {
                 let status = match &arr[0] {
                     Value::Int(n) => *n,
                     _ => panic!("isFinished script returned unexpected status type"),

@@ -1,9 +1,10 @@
 use chrono::Utc;
 use redis::{ErrorKind, RedisError, Value};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::{
     JobOptions,
+    bullmq::options::WireJobOptions,
     error::AddJobErr,
     luacommands::{ADD_DELAYED_JOB, InvokeLuaScript},
     queue::QueueName,
@@ -14,11 +15,6 @@ pub struct AddDelayedJob<'a, D> {
     pub job_name: &'a str,
     pub data: &'a D,
     pub job_options: &'a JobOptions,
-}
-
-#[derive(Debug, Deserialize)]
-pub enum AddDelayedJobOk {
-    JobId(String),
 }
 
 impl<'a, D> InvokeLuaScript for AddDelayedJob<'a, D>
@@ -69,7 +65,10 @@ where
             .key(self.queue.events())
             .arg(rmp_serde::to_vec(&arguments).expect("should never fails"))
             .arg(payload_serialized)
-            .arg(rmp_serde::to_vec_named(self.job_options).expect("serializing never fails"));
+            .arg(
+                rmp_serde::to_vec_named(&WireJobOptions::from(self.job_options))
+                    .expect("serializing never fails"),
+            );
         Ok(invocation)
     }
 
