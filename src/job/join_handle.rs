@@ -6,9 +6,9 @@ use tokio::sync::broadcast;
 use tracing::{debug, trace, warn};
 
 use crate::{
-    error::JobAwaitError,
+    error::{JobAwaitError, RemoveJobError},
     event_system::{EventSystem, QueueEvent},
-    luacommands::{InvokeLuaScript, IsFinished, IsFinishedOk},
+    luacommands::{InvokeLuaScript, IsFinished, IsFinishedOk, RemoveJob},
     queue::QueueName,
 };
 
@@ -48,6 +48,24 @@ where
     /// Access the job ID.
     pub fn id(&self) -> &str {
         &self.id
+    }
+
+    /// Remove this job from the queue.
+    ///
+    /// Returns [`RemoveJobError::JobLocked`] if the job is currently being
+    /// processed by a worker, or [`RemoveJobError::IsSchedulerJob`] if it was
+    /// produced by a scheduler.
+    ///
+    /// Removal is idempotent: if the job does not exist the call succeeds.
+    pub async fn remove(self) -> Result<(), RemoveJobError> {
+        let mut con = self.pool.get().await?;
+        RemoveJob {
+            queue: &self.queue_name,
+            job_id: &self.id,
+            remove_children: false,
+        }
+        .call(&mut con)
+        .await
     }
 
     /// Wait for the job to complete and return its result.

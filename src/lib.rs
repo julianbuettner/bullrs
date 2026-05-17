@@ -18,6 +18,7 @@ mod worker;
 /// Error types for all queue, worker and job operations.
 pub mod error;
 
+pub use error::RemoveJobError;
 pub use event_system::QueueEvent;
 pub use job::{ActiveJob, Backoff, JobOptions, JobJoinHandle, ParentRef, RateLimit, Retain};
 pub use progress::*;
