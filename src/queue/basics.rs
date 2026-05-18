@@ -12,14 +12,87 @@ use crate::{
     },
     job::{JobJoinHandle, JobOptions},
     luacommands::{
-        AddDelayedJob, AddJobScheduler, AddJobSchedulerOk, AddPrioritizedJob, AddStandardJob,
-        GetJobScheduler, InvokeLuaScript, Obliterate, ObliterateOk, Pause, PauseAction,
-        RemoveJobScheduler,
+        ADD_DELAYED_JOB, ADD_PRIORITIZED_JOB, ADD_STANDARD_JOB, AddDelayedJob, AddJobScheduler,
+        AddJobSchedulerOk, AddPrioritizedJob, AddStandardJob, GetJobScheduler, InvokeLuaScript,
+        Obliterate, ObliterateOk, Pause, PauseAction, RemoveJobScheduler,
     },
     queue::Queue,
     scheduler::compute_next_millis,
     worker::{Worker, WorkerArgs},
 };
+
+/// Map a single pipeline response value from an add-job Lua script to a job ID.
+fn map_add_job_value(value: redis::Value) -> Result<String, AddJobErr> {
+    match value {
+        redis::Value::Int(-5) => Err(AddJobErr::MissingParentKey),
+        redis::Value::BulkString(s) => Ok(String::from_utf8_lossy(&s).into()),
+        redis::Value::SimpleString(s) => Ok(s),
+        x => Err(redis::RedisError::from((
+            redis::ErrorKind::ResponseError,
+            "Unexpected response from add-job lua script in pipeline",
+            format!("Response was {x:?}"),
+        ))
+        .into()),
+    }
+}
+
+/// Execute `cmds` as a single pipelined batch and return one `Value` per command.
+///
+/// Uses `ignore_errors` so individual EVALSHA failures produce `Value::Nil`
+/// rather than aborting the whole pipeline call. This lets the caller identify
+/// which commands need a retry after script loading.
+async fn run_pipeline(
+    con: &mut impl redis::aio::ConnectionLike,
+    cmds: &[redis::Cmd],
+) -> Result<Vec<redis::Value>, AddJobErr> {
+    let mut pipe = redis::pipe();
+    for cmd in cmds {
+        pipe.add_command(cmd.clone());
+    }
+    pipe.ignore_errors()
+        .query_async::<Vec<redis::Value>>(con)
+        .await
+        .map_err(Into::into)
+}
+
+/// Run an EVALSHA pipeline, loading the three add-job scripts on NOSCRIPT and
+/// retrying only the commands that failed.
+///
+/// add-job scripts never return nil on success, so `Value::Nil` in the result
+/// unambiguously indicates a failed (NOSCRIPT) command.
+async fn bulk_evalsha_pipeline(
+    con: &mut impl redis::aio::ConnectionLike,
+    cmds: &[redis::Cmd],
+) -> Result<Vec<redis::Value>, AddJobErr> {
+    let results = run_pipeline(con, cmds).await?;
+
+    let failed: Vec<usize> = results
+        .iter()
+        .enumerate()
+        .filter(|(_, v)| matches!(v, redis::Value::Nil))
+        .map(|(i, _)| i)
+        .collect();
+
+    if failed.is_empty() {
+        return Ok(results);
+    }
+
+    // At least one EVALSHA was rejected — load all three add-job scripts and
+    // retry only the failed positions. This avoids re-adding jobs that already
+    // succeeded in the first pipeline.
+    ADD_STANDARD_JOB.load_async(con).await?;
+    ADD_DELAYED_JOB.load_async(con).await?;
+    ADD_PRIORITIZED_JOB.load_async(con).await?;
+
+    let retry_cmds: Vec<redis::Cmd> = failed.iter().map(|&i| cmds[i].clone()).collect();
+    let retry_results = run_pipeline(con, &retry_cmds).await?;
+
+    let mut merged = results;
+    for (&idx, val) in failed.iter().zip(retry_results) {
+        merged[idx] = val;
+    }
+    Ok(merged)
+}
 
 impl<D, R> Queue<D, R>
 where
@@ -117,11 +190,12 @@ where
         self.add_with(job_name, data, &JobOptions::default()).await
     }
 
-    /// Add multiple jobs using a single connection from the pool.
+    /// Add multiple jobs in a single Redis round-trip using EVALSHA pipelining.
     ///
     /// Each tuple is `(job_name, data, options)` — the same arguments as
-    /// [`Self::add_with`]. Jobs are enqueued in order. If any job fails, the
-    /// jobs enqueued before the failure are **not** rolled back.
+    /// [`Self::add_with`]. All jobs are dispatched in one pipeline. If the
+    /// scripts are not yet cached by Redis (e.g. after a restart), they are
+    /// loaded automatically and only the failed commands are retried.
     ///
     /// Returns one [`JobJoinHandle`] per input job in the same order.
     pub async fn add_bulk<'a>(
@@ -135,48 +209,54 @@ where
             return Ok(Vec::new());
         }
 
+        // Serialize all job payloads and build EVALSHA commands up front.
+        let cmds: Vec<redis::Cmd> = jobs
+            .iter()
+            .map(|&(job_name, data, job_options)| {
+                if job_options.delay.is_some() {
+                    AddDelayedJob {
+                        queue: &self.name,
+                        job_name,
+                        data,
+                        job_options,
+                    }
+                    .evalsha_cmd()
+                } else if job_options.priority.is_some() {
+                    AddPrioritizedJob {
+                        queue: &self.name,
+                        job_name,
+                        data,
+                        job_options,
+                    }
+                    .evalsha_cmd()
+                } else {
+                    AddStandardJob {
+                        queue: &self.name,
+                        job_name,
+                        data,
+                        job_options,
+                    }
+                    .evalsha_cmd()
+                }
+            })
+            .collect::<Result<_, _>>()?;
+
         let mut con = self.pool.get().await?;
-        let mut handles = Vec::with_capacity(jobs.len());
+        let values = bulk_evalsha_pipeline(&mut *con, &cmds).await?;
 
-        for &(job_name, data, job_options) in jobs {
-            let job_id = if job_options.delay.is_some() {
-                AddDelayedJob {
-                    queue: &self.name,
-                    job_name,
-                    data,
-                    job_options,
-                }
-                .call(&mut *con)
-                .await?
-            } else if job_options.priority.is_some() {
-                AddPrioritizedJob {
-                    queue: &self.name,
-                    job_name,
-                    data,
-                    job_options,
-                }
-                .call(&mut *con)
-                .await?
-            } else {
-                AddStandardJob {
-                    queue: &self.name,
-                    job_name,
-                    data,
-                    job_options,
-                }
-                .call(&mut *con)
-                .await?
-            };
-
-            handles.push(JobJoinHandle::new(
-                self.name.clone(),
-                self.pool.clone(),
-                job_id,
-                self.event_system.clone(),
-            ));
-        }
-
-        Ok(handles)
+        values
+            .into_iter()
+            .map(|v| {
+                map_add_job_value(v).map(|job_id| {
+                    JobJoinHandle::new(
+                        self.name.clone(),
+                        self.pool.clone(),
+                        job_id,
+                        self.event_system.clone(),
+                    )
+                })
+            })
+            .collect()
     }
 
     /// Create or update a job scheduler.

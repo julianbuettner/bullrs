@@ -44,11 +44,11 @@ macro_rules! load_script {
 }
 
 lazy_static! {
-    static ref ADD_DELAYED_JOB: Script = load_script!("addDelayedJob-6.lua");
+    pub(crate) static ref ADD_DELAYED_JOB: Script = load_script!("addDelayedJob-6.lua");
     static ref ADD_JOB_SCHEDULER: Script = load_script!("addJobScheduler-11.lua");
     static ref ADD_LOG: Script = load_script!("addLog-2.lua");
-    static ref ADD_PRIORITIZED_JOB: Script = load_script!("addPrioritizedJob-9.lua");
-    static ref ADD_STANDARD_JOB: Script = load_script!("addStandardJob-9.lua");
+    pub(crate) static ref ADD_PRIORITIZED_JOB: Script = load_script!("addPrioritizedJob-9.lua");
+    pub(crate) static ref ADD_STANDARD_JOB: Script = load_script!("addStandardJob-9.lua");
     static ref EXTEND_LOCKS: Script = load_script!("extendLocks-1.lua");
     static ref GET_JOB_SCHEDULER: Script = load_script!("getJobScheduler-1.lua");
     static ref IS_FINISHED: Script = load_script!("isFinished-3.lua");
