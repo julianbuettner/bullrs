@@ -74,9 +74,9 @@ async fn bulk_evalsha_pipeline(
         return Ok(raw);
     }
 
-    (&*ADD_STANDARD_JOB).load_async(con).await?;
-    (&*ADD_DELAYED_JOB).load_async(con).await?;
-    (&*ADD_PRIORITIZED_JOB).load_async(con).await?;
+    ADD_STANDARD_JOB.prepare_invoke().load_async(con).await?;
+    ADD_DELAYED_JOB.prepare_invoke().load_async(con).await?;
+    ADD_PRIORITIZED_JOB.prepare_invoke().load_async(con).await?;
 
     let retry_cmds: Vec<redis::Cmd> = failed.iter().map(|&i| cmds[i].clone()).collect();
     let retry_raw = send_pipeline(con, &retry_cmds).await?;
