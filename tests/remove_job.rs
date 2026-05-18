@@ -1,4 +1,9 @@
-use bullrs::{JobOptions, RemoveJobError, Retain, WorkerArgs};
+use std::time::Duration;
+
+use bullrs::{
+    JobOptions, Repeat, RemoveJobError, Retain, SchedulerId, SchedulerTemplate, SchedulerWindow,
+    WorkerArgs,
+};
 use ntest::timeout;
 
 mod setup;
@@ -109,4 +114,59 @@ async fn remove_nonexistent_job_is_noop() {
 
     // No jobs have been added — removal of a phantom ID must succeed.
     q.remove_job("9999").await.unwrap();
+}
+
+/// Removing a job produced by a scheduler returns `IsSchedulerJob`.
+#[tokio::test]
+#[test_log::test]
+#[timeout(5_000)]
+async fn remove_scheduler_job_returns_is_scheduler_job() {
+    let tq = TestQueue::new("remove-scheduler");
+    let q = &tq.queue;
+
+    let id = SchedulerId::try_new("test-sched").unwrap();
+    let ok = q
+        .upsert_job_scheduler(
+            &id,
+            &Repeat::Every {
+                interval: Duration::from_secs(60),
+                offset: None,
+            },
+            &SchedulerWindow::default(),
+            SchedulerTemplate {
+                name: "tick",
+                data: &Input { input: 1 },
+                opts: &JobOptions::default(),
+            },
+        )
+        .await
+        .unwrap();
+
+    // The scheduler created a pending next job; removing it directly must fail.
+    let err = q.remove_job(&ok.job_id).await.unwrap_err();
+    assert!(
+        matches!(err, RemoveJobError::IsSchedulerJob),
+        "expected IsSchedulerJob, got: {err:?}"
+    );
+}
+
+/// `remove_job_with_children` works for jobs that have no children.
+#[tokio::test]
+#[test_log::test]
+#[timeout(5_000)]
+async fn remove_job_with_children_childless() {
+    let tq = TestQueue::new("remove-children-noop");
+    let q = &tq.queue;
+
+    let handle = q.add("work", &Input { input: 1 }).await.unwrap();
+    let job_id = handle.id().to_owned();
+
+    q.remove_job_with_children(&job_id).await.unwrap();
+
+    // Job is gone — worker finds nothing.
+    let mut w = q.worker(WorkerArgs::default());
+    q.add("sentinel", &Input { input: 99 }).await.unwrap();
+    let job = w.next().await.unwrap().unwrap();
+    assert_eq!(job.name(), "sentinel");
+    job.done(&Output { output: 99 }).await.unwrap();
 }

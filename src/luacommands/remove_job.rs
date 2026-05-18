@@ -1,4 +1,4 @@
-use redis::RedisError;
+use redis::{ErrorKind, RedisError};
 
 use crate::{
     error::RemoveJobError,
@@ -8,7 +8,8 @@ use crate::{
 
 /// Remove a single job from any state it may be in.
 ///
-/// An active job that is currently held by a worker cannot be removed.
+/// Returns an error if the job is currently locked by a worker or if the
+/// job was produced by a scheduler (remove the scheduler instead).
 pub struct RemoveJob<'a> {
     pub queue: &'a QueueName,
     pub job_id: &'a str,
@@ -41,7 +42,12 @@ impl<'a> InvokeLuaScript for RemoveJob<'a> {
             1 => Ok(()),
             0 => Err(RemoveJobError::JobLocked),
             -8 => Err(RemoveJobError::IsSchedulerJob),
-            x => panic!("removeJob script returned unexpected value: {x}"),
+            x => Err(RedisError::from((
+                ErrorKind::ResponseError,
+                "removeJob script returned unexpected code",
+                format!("{x}"),
+            ))
+            .into()),
         }
     }
 }
