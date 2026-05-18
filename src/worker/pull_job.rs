@@ -30,18 +30,31 @@ use crate::{
     },
 };
 
+pub struct PullJobConfig {
+    pub pool: Pool,
+    pub queue_name: QueueName,
+    pub shutdown_switch: ShutdownSwitch,
+    pub pulling_switch: ShutdownSwitch,
+    pub semaphore: Arc<Semaphore>,
+    pub failure_cooldown: Duration,
+    pub pull_worker_id: String,
+}
+
 pub async fn pull_job_thread<D, R>(
-    pool: Pool,
-    queue_name: QueueName,
-    shutdown_switch: ShutdownSwitch,
-    pulling_switch: ShutdownSwitch,
+    config: PullJobConfig,
     job_sender: Sender<Result<JobWorkHandle<D, R>, WorkerError>>,
-    semaphore: Arc<Semaphore>,
-    failure_cooldown: Duration,
-    pull_worker_id: String,
 ) where
     D: DeserializeOwned + std::fmt::Debug,
 {
+    let PullJobConfig {
+        pool,
+        queue_name,
+        shutdown_switch,
+        pulling_switch,
+        semaphore,
+        failure_cooldown,
+        pull_worker_id,
+    } = config;
     let (marker_send, mut marker_recv) = mpsc::channel(1);
     let poll_span = span!(Level::TRACE, "poll-marker");
     spawn(poll_marker(pool.clone(), queue_name.clone(), marker_send).instrument(poll_span));
@@ -71,10 +84,7 @@ pub async fn pull_job_thread<D, R>(
         let con = pool.get().await;
         if let Err(e) = con {
             warn!("Failed to get Redis connection: {}", e);
-            let fatal = match &e {
-                &PoolError::Closed => true,
-                _ => false,
-            };
+            let fatal = matches!(&e, &PoolError::Closed);
             if job_sender.send(Err(e.into())).await.is_err() {
                 // Received is closed anyways. Terminate.
                 warn!("Receiver dropped, terminate");
@@ -116,13 +126,10 @@ pub async fn pull_job_thread<D, R>(
                         queue_name.clone(),
                         pool.clone(),
                         id,
-                        data.name,
+                        data,
                         permit,
-                        data.data,
                         lock_token,
                         pull_worker_id.clone(),
-                        data.scheduled_by,
-                        data.options,
                     )))
                     .await
                     .is_err();

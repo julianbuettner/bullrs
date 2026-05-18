@@ -30,7 +30,7 @@ pub enum Repeat {
     /// `Some`, the cron expression is evaluated in that timezone.
     Cron {
         /// Cron pattern (Unix cron, optional seconds field).
-        pattern: Cron,
+        pattern: Box<Cron>,
         /// Timezone to evaluate the cron expression in (defaults to UTC).
         tz: Option<Tz>,
     },

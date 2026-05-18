@@ -3,16 +3,19 @@ use deadpool_redis::Pool;
 use crate::PreparedFlowJob;
 
 /// Not implemented yet
+#[allow(dead_code)]
 #[derive(Clone)]
 pub(crate) struct FlowProducer {
     pool: Pool,
 }
 
+#[allow(dead_code)]
 pub struct FlowJob {
     job: PreparedFlowJob,
     children: Vec<FlowJob>,
 }
 
+#[allow(dead_code)]
 impl FlowProducer {
     pub fn new(pool: Pool) -> Self {
         Self { pool }
@@ -27,6 +30,7 @@ impl FlowProducer {
     }
 }
 
+#[allow(dead_code)]
 impl FlowJob {
     pub fn new(job: PreparedFlowJob) -> Self {
         Self {

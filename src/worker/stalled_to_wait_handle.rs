@@ -7,7 +7,8 @@ use tracing::{info, warn};
 
 use crate::{
     luacommands::{InvokeLuaScript, MoveStalledJobsToWait},
-    queue::QueueName, worker::shutdown_switch::ShutdownSwitch,
+    queue::QueueName,
+    worker::shutdown_switch::ShutdownSwitch,
 };
 
 /// Move stalled jobs (worker doesn't refresh job lock) to

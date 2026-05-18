@@ -27,12 +27,13 @@ mod pull_job;
 pub(crate) mod shutdown_switch;
 mod stalled_to_wait_handle;
 mod workererror;
-use pull_job::pull_job_thread;
+use pull_job::{PullJobConfig, pull_job_thread};
 
 /// The worker makes jobs available for processing.
 ///
 /// The worker maintains one or multiple connections to the Redis database to dequeue
 /// jobs.
+#[allow(dead_code)]
 pub struct Worker<D, R> {
     uid: String,
     pool: Pool,
@@ -129,14 +130,16 @@ where
             let pull_span = span!(Level::ERROR, "pull", id = pull_worker_id);
             let jh = tokio::spawn(
                 pull_job_thread(
-                    pool.clone(),
-                    queue_name.clone(),
-                    shutdown_switch.clone(),
-                    pulling_switch.clone(),
+                    PullJobConfig {
+                        pool: pool.clone(),
+                        queue_name: queue_name.clone(),
+                        shutdown_switch: shutdown_switch.clone(),
+                        pulling_switch: pulling_switch.clone(),
+                        semaphore: semaphore.clone(),
+                        failure_cooldown: args.cooldown_after_error,
+                        pull_worker_id,
+                    },
                     tx.clone(),
-                    semaphore.clone(),
-                    args.cooldown_after_error,
-                    pull_worker_id,
                 )
                 .instrument(pull_span.clone()),
             );
