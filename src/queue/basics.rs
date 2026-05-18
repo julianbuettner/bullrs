@@ -21,7 +21,6 @@ use crate::{
     worker::{Worker, WorkerArgs},
 };
 
-/// Map a single pipeline response value from an add-job Lua script to a job ID.
 fn map_add_job_value(value: redis::Value) -> Result<String, AddJobErr> {
     match value {
         redis::Value::Int(-5) => Err(AddJobErr::MissingParentKey),
@@ -36,12 +35,11 @@ fn map_add_job_value(value: redis::Value) -> Result<String, AddJobErr> {
     }
 }
 
-/// Execute `cmds` as a single pipelined batch and return one `Value` per command.
-///
-/// Uses `ignore_errors` so individual EVALSHA failures produce `Value::Nil`
-/// rather than aborting the whole pipeline call. This lets the caller identify
-/// which commands need a retry after script loading.
-async fn run_pipeline(
+fn is_noscript(v: &redis::Value) -> bool {
+    matches!(v, redis::Value::ServerError(e) if e.code() == "NOSCRIPT")
+}
+
+async fn send_pipeline(
     con: &mut impl redis::aio::ConnectionLike,
     cmds: &[redis::Cmd],
 ) -> Result<Vec<redis::Value>, AddJobErr> {
@@ -49,46 +47,42 @@ async fn run_pipeline(
     for cmd in cmds {
         pipe.add_command(cmd.clone());
     }
-    pipe.ignore_errors()
-        .query_async::<Vec<redis::Value>>(con)
+    // req_packed_commands returns raw per-command Values including ServerError,
+    // so individual NOSCRIPT failures don't abort the whole batch.
+    con.req_packed_commands(&pipe, 0, cmds.len())
         .await
         .map_err(Into::into)
 }
 
-/// Run an EVALSHA pipeline, loading the three add-job scripts on NOSCRIPT and
-/// retrying only the commands that failed.
-///
-/// add-job scripts never return nil on success, so `Value::Nil` in the result
-/// unambiguously indicates a failed (NOSCRIPT) command.
+/// Run an EVALSHA pipeline. If any commands return NOSCRIPT, loads the three
+/// add-job scripts and retries only the failed positions so successful jobs
+/// are not re-submitted.
 async fn bulk_evalsha_pipeline(
     con: &mut impl redis::aio::ConnectionLike,
     cmds: &[redis::Cmd],
 ) -> Result<Vec<redis::Value>, AddJobErr> {
-    let results = run_pipeline(con, cmds).await?;
+    let raw = send_pipeline(con, cmds).await?;
 
-    let failed: Vec<usize> = results
+    let failed: Vec<usize> = raw
         .iter()
         .enumerate()
-        .filter(|(_, v)| matches!(v, redis::Value::Nil))
+        .filter(|(_, v)| is_noscript(v))
         .map(|(i, _)| i)
         .collect();
 
     if failed.is_empty() {
-        return Ok(results);
+        return Ok(raw);
     }
 
-    // At least one EVALSHA was rejected — load all three add-job scripts and
-    // retry only the failed positions. This avoids re-adding jobs that already
-    // succeeded in the first pipeline.
-    ADD_STANDARD_JOB.load_async(con).await?;
-    ADD_DELAYED_JOB.load_async(con).await?;
-    ADD_PRIORITIZED_JOB.load_async(con).await?;
+    (&*ADD_STANDARD_JOB).load_async(con).await?;
+    (&*ADD_DELAYED_JOB).load_async(con).await?;
+    (&*ADD_PRIORITIZED_JOB).load_async(con).await?;
 
     let retry_cmds: Vec<redis::Cmd> = failed.iter().map(|&i| cmds[i].clone()).collect();
-    let retry_results = run_pipeline(con, &retry_cmds).await?;
+    let retry_raw = send_pipeline(con, &retry_cmds).await?;
 
-    let mut merged = results;
-    for (&idx, val) in failed.iter().zip(retry_results) {
+    let mut merged = raw;
+    for (&idx, val) in failed.iter().zip(retry_raw) {
         merged[idx] = val;
     }
     Ok(merged)
