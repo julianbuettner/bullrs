@@ -117,6 +117,68 @@ where
         self.add_with(job_name, data, &JobOptions::default()).await
     }
 
+    /// Add multiple jobs using a single connection from the pool.
+    ///
+    /// Each tuple is `(job_name, data, options)` — the same arguments as
+    /// [`Self::add_with`]. Jobs are enqueued in order. If any job fails, the
+    /// jobs enqueued before the failure are **not** rolled back.
+    ///
+    /// Returns one [`JobJoinHandle`] per input job in the same order.
+    pub async fn add_bulk<'a>(
+        &self,
+        jobs: &[(&'a str, &'a D, &'a JobOptions)],
+    ) -> Result<Vec<JobJoinHandle<D, R>>, AddJobErr>
+    where
+        D: Serialize,
+    {
+        if jobs.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut con = self.pool.get().await?;
+        let mut handles = Vec::with_capacity(jobs.len());
+
+        for &(job_name, data, job_options) in jobs {
+            let job_id = if job_options.delay.is_some() {
+                AddDelayedJob {
+                    queue: &self.name,
+                    job_name,
+                    data,
+                    job_options,
+                }
+                .call(&mut *con)
+                .await?
+            } else if job_options.priority.is_some() {
+                AddPrioritizedJob {
+                    queue: &self.name,
+                    job_name,
+                    data,
+                    job_options,
+                }
+                .call(&mut *con)
+                .await?
+            } else {
+                AddStandardJob {
+                    queue: &self.name,
+                    job_name,
+                    data,
+                    job_options,
+                }
+                .call(&mut *con)
+                .await?
+            };
+
+            handles.push(JobJoinHandle::new(
+                self.name.clone(),
+                self.pool.clone(),
+                job_id,
+                self.event_system.clone(),
+            ));
+        }
+
+        Ok(handles)
+    }
+
     /// Create or update a job scheduler.
     ///
     /// `scheduler_id` is a unique identifier for this scheduler.
