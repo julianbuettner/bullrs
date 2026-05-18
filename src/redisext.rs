@@ -13,6 +13,7 @@ pub enum RedisHashMapError {
     TimeStampOutOfRange { key: String, ts: i64 },
 }
 
+#[allow(dead_code)]
 pub trait RedisHashMapExt {
     fn get_v(&self, key: &str) -> Result<String, RedisHashMapError>;
     fn extract<T: DeserializeOwned>(&self, key: &str) -> Result<T, RedisHashMapError>;

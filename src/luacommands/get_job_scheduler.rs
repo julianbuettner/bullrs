@@ -87,7 +87,10 @@ impl<'a> InvokeLuaScript for GetJobScheduler<'a> {
                 interval: Duration::from_millis(ms),
                 offset: offset.map(|o| Duration::from_millis(o.max(0) as u64)),
             }),
-            (None, Some(p)) => Some(Repeat::Cron { pattern: p, tz }),
+            (None, Some(p)) => Some(Repeat::Cron {
+                pattern: Box::new(p),
+                tz,
+            }),
             (None, None) => None,
         };
         let window = SchedulerWindow {

@@ -71,7 +71,7 @@ mod tests {
     #[test]
     fn cron_repeat_sets_pattern_and_tz_name() {
         let repeat = Repeat::Cron {
-            pattern: Cron::from_str("0 9 * * *").unwrap(),
+            pattern: Box::new(Cron::from_str("0 9 * * *").unwrap()),
             tz: Some(Europe::Berlin),
         };
         let opts = WireSchedulerOpts::from_domain("daily", &repeat, &SchedulerWindow::default());

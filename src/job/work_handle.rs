@@ -15,7 +15,7 @@ use crate::{
     error::{AddLogError, MoveToFinishedErr, UpdateProgressError},
 };
 use crate::{
-    job::JobOptions,
+    job::{ActiveJob, JobOptions},
     luacommands::{
         AddLog, FinishOptions, GetJobScheduler, InvokeLuaScript, KeepCount, MoveToFinished,
         UpdateJobScheduler, UpdateProgess,
@@ -49,27 +49,24 @@ impl<D, R> JobWorkHandle<D, R> {
         queue_name: QueueName,
         pool: Pool,
         id: String,
-        name: String,
+        job: ActiveJob<D>,
         semaphore_permit: OwnedSemaphorePermit,
-        data: D,
         lock_token: Arc<str>,
         worker_name: String,
-        scheduled_by: Option<SchedulerId>,
-        options: Option<JobOptions>,
     ) -> Self {
         Self {
             queue_name,
             pool,
             id,
-            name,
+            name: job.name,
             _semaphore_permit: semaphore_permit,
-            data,
+            data: job.data,
             phantom: PhantomData,
             lock_token,
             worker_name,
             has_been_finished: false,
-            scheduled_by,
-            options,
+            scheduled_by: job.scheduled_by,
+            options: job.options,
         }
     }
 
@@ -119,13 +116,14 @@ impl<D, R> JobWorkHandle<D, R> {
         move_to_finished.call(&mut con).await?;
 
         if let Some(ref scheduler_id) = self.scheduled_by
-            && let Err(e) = self.update_scheduler_next_job(scheduler_id).await {
-                warn!(
-                    "Failed to update scheduler {} after job {}: {e:?}",
-                    scheduler_id.as_ref(),
-                    self.id
-                );
-            }
+            && let Err(e) = self.update_scheduler_next_job(scheduler_id).await
+        {
+            warn!(
+                "Failed to update scheduler {} after job {}: {e:?}",
+                scheduler_id.as_ref(),
+                self.id
+            );
+        }
 
         Ok(())
     }
@@ -148,13 +146,15 @@ impl<D, R> JobWorkHandle<D, R> {
         let now_ms = now.timestamp_millis();
 
         if let Some(end) = info.window.end
-            && now > end {
-                return Ok(());
-            }
+            && now > end
+        {
+            return Ok(());
+        }
         if let (Some(limit), Some(ic)) = (info.window.limit, info.iteration_count)
-            && ic >= limit {
-                return Ok(());
-            }
+            && ic >= limit
+        {
+            return Ok(());
+        }
 
         let next_millis = match info.repeat {
             Some(Repeat::Every { .. }) => {

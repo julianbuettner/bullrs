@@ -69,6 +69,7 @@ fn main() {
         );
         let mut outputfile = OpenOptions::new()
             .create(true)
+            .truncate(true)
             .write(true)
             .open(out_path)
             .unwrap();
