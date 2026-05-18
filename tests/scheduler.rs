@@ -159,7 +159,7 @@ async fn redis_scheduler_cron_every_second() {
     let mut w = q.worker(WorkerArgs::default());
 
     let repeat = Repeat::Cron {
-        pattern: croner::Cron::from_str("*/1 * * * * *").unwrap(),
+        pattern: Box::new(croner::Cron::from_str("*/1 * * * * *").unwrap()),
         tz: None,
     };
     let id = SchedulerId::try_new("cron-tick").unwrap();

@@ -64,6 +64,7 @@ impl QueueName {
     pub(crate) fn job(&self, job_id: &str) -> String {
         format!("bull:{}:{}", self.0, job_id)
     }
+    #[allow(dead_code)]
     pub(crate) fn job_lock(&self, job_id: &str) -> String {
         format!("bull:{}:{}:lock", self.0, job_id)
     }

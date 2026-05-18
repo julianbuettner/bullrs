@@ -15,7 +15,7 @@ use crate::{
     error::{AddLogError, MoveToFinishedErr, UpdateProgressError},
 };
 use crate::{
-    job::JobOptions,
+    job::{ActiveJob, JobOptions},
     luacommands::{
         AddLog, FinishOptions, GetJobScheduler, InvokeLuaScript, KeepCount, MoveToFinished,
         UpdateJobScheduler, UpdateProgess,
@@ -49,27 +49,24 @@ impl<D, R> JobWorkHandle<D, R> {
         queue_name: QueueName,
         pool: Pool,
         id: String,
-        name: String,
+        job: ActiveJob<D>,
         semaphore_permit: OwnedSemaphorePermit,
-        data: D,
         lock_token: Arc<str>,
         worker_name: String,
-        scheduled_by: Option<SchedulerId>,
-        options: Option<JobOptions>,
     ) -> Self {
         Self {
             queue_name,
             pool,
             id,
-            name,
+            name: job.name,
             _semaphore_permit: semaphore_permit,
-            data,
+            data: job.data,
             phantom: PhantomData,
             lock_token,
             worker_name,
             has_been_finished: false,
-            scheduled_by,
-            options,
+            scheduled_by: job.scheduled_by,
+            options: job.options,
         }
     }
 
