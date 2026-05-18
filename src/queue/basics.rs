@@ -12,14 +12,81 @@ use crate::{
     },
     job::{JobJoinHandle, JobOptions},
     luacommands::{
-        AddDelayedJob, AddJobScheduler, AddJobSchedulerOk, AddPrioritizedJob, AddStandardJob,
-        GetJobScheduler, InvokeLuaScript, Obliterate, ObliterateOk, Pause, PauseAction,
-        RemoveJobScheduler,
+        ADD_DELAYED_JOB, ADD_PRIORITIZED_JOB, ADD_STANDARD_JOB, AddDelayedJob, AddJobScheduler,
+        AddJobSchedulerOk, AddPrioritizedJob, AddStandardJob, GetJobScheduler, InvokeLuaScript,
+        Obliterate, ObliterateOk, Pause, PauseAction, RemoveJobScheduler,
     },
     queue::Queue,
     scheduler::compute_next_millis,
     worker::{Worker, WorkerArgs},
 };
+
+fn map_add_job_value(value: redis::Value) -> Result<String, AddJobErr> {
+    match value {
+        redis::Value::Int(-5) => Err(AddJobErr::MissingParentKey),
+        redis::Value::BulkString(s) => Ok(String::from_utf8_lossy(&s).into()),
+        redis::Value::SimpleString(s) => Ok(s),
+        x => Err(redis::RedisError::from((
+            redis::ErrorKind::ResponseError,
+            "Unexpected response from add-job lua script in pipeline",
+            format!("Response was {x:?}"),
+        ))
+        .into()),
+    }
+}
+
+fn is_noscript(v: &redis::Value) -> bool {
+    matches!(v, redis::Value::ServerError(e) if e.code() == "NOSCRIPT")
+}
+
+async fn send_pipeline(
+    con: &mut impl redis::aio::ConnectionLike,
+    cmds: &[redis::Cmd],
+) -> Result<Vec<redis::Value>, AddJobErr> {
+    let mut pipe = redis::pipe();
+    for cmd in cmds {
+        pipe.add_command(cmd.clone());
+    }
+    // req_packed_commands returns raw per-command Values including ServerError,
+    // so individual NOSCRIPT failures don't abort the whole batch.
+    con.req_packed_commands(&pipe, 0, cmds.len())
+        .await
+        .map_err(Into::into)
+}
+
+/// Run an EVALSHA pipeline. If any commands return NOSCRIPT, loads the three
+/// add-job scripts and retries only the failed positions so successful jobs
+/// are not re-submitted.
+async fn bulk_evalsha_pipeline(
+    con: &mut impl redis::aio::ConnectionLike,
+    cmds: &[redis::Cmd],
+) -> Result<Vec<redis::Value>, AddJobErr> {
+    let raw = send_pipeline(con, cmds).await?;
+
+    let failed: Vec<usize> = raw
+        .iter()
+        .enumerate()
+        .filter(|(_, v)| is_noscript(v))
+        .map(|(i, _)| i)
+        .collect();
+
+    if failed.is_empty() {
+        return Ok(raw);
+    }
+
+    ADD_STANDARD_JOB.prepare_invoke().load_async(con).await?;
+    ADD_DELAYED_JOB.prepare_invoke().load_async(con).await?;
+    ADD_PRIORITIZED_JOB.prepare_invoke().load_async(con).await?;
+
+    let retry_cmds: Vec<redis::Cmd> = failed.iter().map(|&i| cmds[i].clone()).collect();
+    let retry_raw = send_pipeline(con, &retry_cmds).await?;
+
+    let mut merged = raw;
+    for (&idx, val) in failed.iter().zip(retry_raw) {
+        merged[idx] = val;
+    }
+    Ok(merged)
+}
 
 impl<D, R> Queue<D, R>
 where
@@ -115,6 +182,75 @@ where
         D: Serialize,
     {
         self.add_with(job_name, data, &JobOptions::default()).await
+    }
+
+    /// Add multiple jobs in a single Redis round-trip using EVALSHA pipelining.
+    ///
+    /// Each tuple is `(job_name, data, options)` — the same arguments as
+    /// [`Self::add_with`]. All jobs are dispatched in one pipeline. If the
+    /// scripts are not yet cached by Redis (e.g. after a restart), they are
+    /// loaded automatically and only the failed commands are retried.
+    ///
+    /// Returns one [`JobJoinHandle`] per input job in the same order.
+    pub async fn add_bulk<'a>(
+        &self,
+        jobs: &[(&'a str, &'a D, &'a JobOptions)],
+    ) -> Result<Vec<JobJoinHandle<D, R>>, AddJobErr>
+    where
+        D: Serialize,
+    {
+        if jobs.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Serialize all job payloads and build EVALSHA commands up front.
+        let cmds: Vec<redis::Cmd> = jobs
+            .iter()
+            .map(|&(job_name, data, job_options)| {
+                if job_options.delay.is_some() {
+                    AddDelayedJob {
+                        queue: &self.name,
+                        job_name,
+                        data,
+                        job_options,
+                    }
+                    .evalsha_cmd()
+                } else if job_options.priority.is_some() {
+                    AddPrioritizedJob {
+                        queue: &self.name,
+                        job_name,
+                        data,
+                        job_options,
+                    }
+                    .evalsha_cmd()
+                } else {
+                    AddStandardJob {
+                        queue: &self.name,
+                        job_name,
+                        data,
+                        job_options,
+                    }
+                    .evalsha_cmd()
+                }
+            })
+            .collect::<Result<_, _>>()?;
+
+        let mut con = self.pool.get().await?;
+        let values = bulk_evalsha_pipeline(&mut *con, &cmds).await?;
+
+        values
+            .into_iter()
+            .map(|v| {
+                map_add_job_value(v).map(|job_id| {
+                    JobJoinHandle::new(
+                        self.name.clone(),
+                        self.pool.clone(),
+                        job_id,
+                        self.event_system.clone(),
+                    )
+                })
+            })
+            .collect()
     }
 
     /// Create or update a job scheduler.

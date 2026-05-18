@@ -87,3 +87,55 @@ where
         }
     }
 }
+
+impl<'a, D> AddPrioritizedJob<'a, D>
+where
+    D: Serialize,
+{
+    pub(crate) fn evalsha_cmd(&self) -> Result<redis::Cmd, AddJobErr> {
+        let key_prefix = self.queue.prefix();
+        let custom_id: &str = self.job_options.job_id.as_deref().unwrap_or("");
+        let parent_key: Option<String> = None;
+        let parent_dependencies_key = "";
+        let parent: Option<String> = None;
+        let repeat_job_key = "";
+        let deduplication_key = "";
+        let job_name = self.job_name;
+        let timestamp = self
+            .job_options
+            .timestamp
+            .unwrap_or_else(Utc::now)
+            .timestamp_millis();
+        let arguments = (
+            key_prefix,
+            custom_id,
+            job_name,
+            timestamp,
+            parent_key,
+            parent_dependencies_key,
+            parent,
+            repeat_job_key,
+            deduplication_key,
+        );
+        let payload_serialized = serde_json::to_string(self.data)?;
+        let mut cmd = redis::cmd("EVALSHA");
+        cmd.arg(ADD_PRIORITIZED_JOB.get_hash())
+            .arg(9u64)
+            .arg(self.queue.marker())
+            .arg(self.queue.meta())
+            .arg(self.queue.id())
+            .arg(self.queue.prioritized())
+            .arg(self.queue.delayed())
+            .arg(self.queue.completed())
+            .arg(self.queue.active())
+            .arg(self.queue.events())
+            .arg(self.queue.priority_counter())
+            .arg(rmp_serde::to_vec(&arguments).expect("should never fail"))
+            .arg(payload_serialized)
+            .arg(
+                rmp_serde::to_vec_named(&WireJobOptions::from(self.job_options))
+                    .expect("serializing never fails"),
+            );
+        Ok(cmd)
+    }
+}
