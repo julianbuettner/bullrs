@@ -1,7 +1,9 @@
 use redis::RedisError;
 
 use crate::{
-    error::PauseResumeError, luacommands::{InvokeLuaScript, PAUSE}, queue::QueueName
+    error::PauseResumeError,
+    luacommands::{InvokeLuaScript, PAUSE},
+    queue::QueueName,
 };
 
 pub enum PauseAction {

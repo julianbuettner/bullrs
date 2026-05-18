@@ -3,6 +3,7 @@ use serde::Serialize;
 use crate::{JobOptions, Queue, QueueName};
 
 /// A FlowJob is a temporary job, ready to be placed in a flow hierarchy.
+#[allow(dead_code)]
 pub struct PreparedFlowJob {
     queue_name: QueueName,
     job_name: String,
@@ -14,7 +15,7 @@ pub struct PreparedFlowJob {
     job_options: JobOptions,
 }
 
-impl<'a, D, R> Queue<D, R>
+impl<D, R> Queue<D, R>
 where
     D: Serialize,
     R: std::fmt::Debug + Clone,
