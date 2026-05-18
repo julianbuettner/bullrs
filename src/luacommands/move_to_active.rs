@@ -171,7 +171,10 @@ mod tests {
     fn base_hash() -> HashMap<String, String> {
         let mut m = HashMap::new();
         m.insert("name".into(), "job-name".into());
-        m.insert("data".into(), serde_json::to_string(&Payload { n: 7 }).unwrap());
+        m.insert(
+            "data".into(),
+            serde_json::to_string(&Payload { n: 7 }).unwrap(),
+        );
         m.insert("timestamp".into(), "1700000000000".into());
         m
     }
