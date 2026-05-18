@@ -8,12 +8,12 @@ use crate::{
     Repeat, SchedulerId, SchedulerInfo, SchedulerTemplate, SchedulerWindow,
     error::{
         AddJobErr, AddJobSchedulerError, BasicRedisError, ObliterateError, PauseResumeError,
-        RemoveJobSchedulerError,
+        RemoveJobError, RemoveJobSchedulerError,
     },
     job::{JobJoinHandle, JobOptions},
     luacommands::{
         AddDelayedJob, AddJobScheduler, AddJobSchedulerOk, AddPrioritizedJob, AddStandardJob,
-        GetJobScheduler, InvokeLuaScript, Obliterate, ObliterateOk, Pause, PauseAction,
+        GetJobScheduler, InvokeLuaScript, Obliterate, ObliterateOk, Pause, PauseAction, RemoveJob,
         RemoveJobScheduler,
     },
     queue::Queue,
@@ -182,6 +182,39 @@ where
             }
         }
         Ok(result)
+    }
+
+    /// Remove a job by ID.
+    ///
+    /// Returns [`RemoveJobError::JobLocked`] if the job is currently being
+    /// processed by a worker, or [`RemoveJobError::IsSchedulerJob`] if it was
+    /// produced by a scheduler (use [`Self::remove_job_scheduler`] instead).
+    ///
+    /// Removal is idempotent: if the job does not exist the call succeeds.
+    pub async fn remove_job(&self, job_id: &str) -> Result<(), RemoveJobError> {
+        let mut con = self.pool.get().await?;
+        RemoveJob {
+            queue: &self.name,
+            job_id,
+            remove_children: false,
+        }
+        .call(&mut con)
+        .await
+    }
+
+    /// Remove a job and all of its child jobs by ID.
+    ///
+    /// Behaves like [`Self::remove_job`] but also removes every descendant in
+    /// the job's parent-child hierarchy.
+    pub async fn remove_job_with_children(&self, job_id: &str) -> Result<(), RemoveJobError> {
+        let mut con = self.pool.get().await?;
+        RemoveJob {
+            queue: &self.name,
+            job_id,
+            remove_children: true,
+        }
+        .call(&mut con)
+        .await
     }
 
     /// Wipe this queue from existence.

@@ -97,6 +97,16 @@ error_set! {
         SerializationFailed(serde_json::Error),
     } || BasicRedisError
 
+    /// Error from removing a job.
+    pub RemoveJobError := {
+        /// Job is currently locked by an active worker.
+        #[display("job is currently locked by an active worker")]
+        JobLocked,
+        /// Job was created by a scheduler and must be removed via `remove_job_scheduler`.
+        #[display("job was created by a scheduler; remove the scheduler instead")]
+        IsSchedulerJob,
+    } || BasicRedisError
+
     /// Error from removing a job scheduler.
     pub RemoveJobSchedulerError := {
         /// No scheduler with the given ID exists.

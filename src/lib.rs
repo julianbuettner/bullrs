@@ -18,6 +18,7 @@ mod queue;
 mod redisext;
 mod worker;
 
+pub use error::RemoveJobError;
 pub use event_system::QueueEvent;
 pub use job::{ActiveJob, Backoff, JobJoinHandle, JobOptions, ParentRef, RateLimit, Retain};
 pub use progress::*;
