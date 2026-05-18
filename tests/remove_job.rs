@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use bullrs::{
-    JobOptions, Repeat, RemoveJobError, Retain, SchedulerId, SchedulerTemplate, SchedulerWindow,
+    JobOptions, RemoveJobError, Repeat, Retain, SchedulerId, SchedulerTemplate, SchedulerWindow,
     WorkerArgs,
 };
 use ntest::timeout;

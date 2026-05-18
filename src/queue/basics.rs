@@ -13,8 +13,8 @@ use crate::{
     job::{JobJoinHandle, JobOptions},
     luacommands::{
         AddDelayedJob, AddJobScheduler, AddJobSchedulerOk, AddPrioritizedJob, AddStandardJob,
-        GetJobScheduler, InvokeLuaScript, Obliterate, ObliterateOk, Pause, PauseAction,
-        RemoveJob, RemoveJobScheduler,
+        GetJobScheduler, InvokeLuaScript, Obliterate, ObliterateOk, Pause, PauseAction, RemoveJob,
+        RemoveJobScheduler,
     },
     queue::Queue,
     scheduler::compute_next_millis,
