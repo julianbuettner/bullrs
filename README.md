@@ -2,14 +2,13 @@
 
 > **This project is deprecated and no longer maintained.**
 >
-> BullRS was built as a Rust port of [BullMQ](https://github.com/taskforcesh/bullmq)'s Redis protocol. Since BullMQ has expanded to multiple languages and remains very actively maintained, I recommend using the official project instead:
+> BullRS was built as a Rust port of [BullMQ](https://github.com/taskforcesh/bullmq)'s Redis protocol. BullMQ now has **official Rust support** — use the official crate instead:
 >
-> - **BullMQ** — [github.com/taskforcesh/bullmq](https://github.com/taskforcesh/bullmq)
+> - **`bullmq-official`** crate — [crates.io/crates/bullmq-official](https://crates.io/crates/bullmq-official) · [docs.rs/bullmq-official](https://docs.rs/bullmq-official)
+> - **Source** — [`rust/` directory in taskforcesh/bullmq](https://github.com/taskforcesh/bullmq/tree/main/rust)
 > - **Homepage** — [bullmq.io](https://bullmq.io)
-> - **Docs** — [docs.bullmq.io](https://docs.bullmq.io)
-> - **Supported languages** — Node.js/TypeScript, Python, Elixir, PHP
->
-> If you need a Redis-backed job queue in Rust, see [apalis](https://github.com/geofmureithi/apalis) or [faktory-rs](https://github.com/jonhoo/faktory-rs) as alternatives.
+> - **Docs** — [docs.bullmq.io](https://docs.bullmq.io) (incl. [Rust guide](https://docs.bullmq.io/rust/introduction))
+> - **All supported languages** — Node.js/TypeScript, Python, Elixir, PHP, **Rust**
 
 ---
 
