@@ -1,4 +1,19 @@
-# BullRS
+# ⚠️ Deprecated: BullRS
+
+> **This project is deprecated and no longer maintained.**
+>
+> BullRS was built as a Rust port of [BullMQ](https://github.com/taskforcesh/bullmq)'s Redis protocol. Since BullMQ has expanded to multiple languages and remains very actively maintained, I recommend using the official project instead:
+>
+> - **BullMQ** — [github.com/taskforcesh/bullmq](https://github.com/taskforcesh/bullmq)
+> - **Homepage** — [bullmq.io](https://bullmq.io)
+> - **Docs** — [docs.bullmq.io](https://docs.bullmq.io)
+> - **Supported languages** — Node.js/TypeScript, Python, Elixir, PHP
+>
+> If you need a Redis-backed job queue in Rust, see [apalis](https://github.com/geofmureithi/apalis) or [faktory-rs](https://github.com/jonhoo/faktory-rs) as alternatives.
+
+---
+
+## BullRS (historical reference)
 
 BullRS is a BullMQ compatible message queue for highly reliable job processing.
 
